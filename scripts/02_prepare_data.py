@@ -1,11 +1,14 @@
 # scripts/02_prepare_data.py
 from pathlib import Path
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config_loader import load_config
+cfg = load_config()
 from mlxtrain.utils import load_config, parse_args, apply_overrides, set_logger
 from datasets import load_from_disk
 
 def main():
     args = parse_args()
-    cfg = apply_overrides(load_config(args.config), args.override)
     log = set_logger()
 
     data = cfg["data"]

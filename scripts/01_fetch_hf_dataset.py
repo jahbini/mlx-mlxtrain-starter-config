@@ -1,11 +1,14 @@
 # scripts/01_fetch_hf_dataset.py
 from pathlib import Path
-from mlxtrain.utils import load_config, parse_args, apply_overrides, set_logger
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config_loader import load_config
+cfg = load_config()
+from mlxtrain.utils import  parse_args, apply_overrides, set_logger
 from datasets import load_dataset
 
 def main():
     args = parse_args()
-    cfg = apply_overrides(load_config(args.config), args.override)
     log = set_logger()
     name   = cfg["data"]["hf_dataset"]
     subset = cfg["data"]["subset"]

@@ -1,6 +1,8 @@
 .PHONY: all setup fetch prep train eval
 CONFIG=configs/default.yaml
 
+environment:
+	python -m pip install -r  requirements.txt
 setup:
 	python scripts/00_setup_data_dir.py --config $(CONFIG)
 

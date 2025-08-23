@@ -1,11 +1,14 @@
 # scripts/03_train.py
 from pathlib import Path
-from mlxtrain.utils import load_config, parse_args, apply_overrides, set_logger, now_stamp, dump_json
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config_loader import load_config
+cfg = load_config()
+from mlxtrain.utils import  parse_args, apply_overrides, set_logger, now_stamp, dump_json
 from datasets import load_from_disk
 
 def main():
     args = parse_args()
-    cfg = apply_overrides(load_config(args.config), args.override)
     log = set_logger()
     paths = cfg["paths"]
     trainer = cfg["trainer"]
