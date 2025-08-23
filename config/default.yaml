@@ -1,0 +1,53 @@
+run:
+  seed: 42
+  alt_seed: 7
+  output_dir: "runs"              # replaces OUT_DIR
+  experiments: "experiments.csv"
+  artifacts: "artifacts.csv"
+
+paths:                            # replaces *_PATH constants
+  contract: "data_contract.json"
+  catalog:  "data_catalog.json"
+  report:   "data_report.json"
+  policy:   "format_policy.json"
+  generations: "generations"
+  tokenizer: "tokenizer_meta"
+  analysis: "eos_analysis"
+  summary: "eos_summary"
+  ablations: "ablation_generations.jsonl"
+
+eval:
+  output_dir: "eval_out"
+  report: "report.md"
+  policy: "generation_policy.json"
+  recreate: "repro.sh"
+
+data:
+  output_dir: "data"              # replaces OUT_DIR
+  hf_dataset: "asuender/motivational-quotes"
+  subset: "quotes"
+  mode: "sft"
+  valid_fraction: 0.02
+  min_words: 5
+  max_words: 60
+
+model:
+  name: "microsoft/Phi-4-reasoning-plus"
+  dtype: "float16"
+  context_length: 8192
+
+trainer:                          # global defaults
+  epochs: 1
+  batch_size: 1
+  grad_accum: 8
+  max_seq_length: 512
+  learning_rate: 0.0002
+  bf16: true
+  iters_override: 0               # 0 = auto-calc
+
+sweep:                            # step 6 “experiment matrix”
+  base_models:
+    - "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    # - "mlx-community/phi-2"
+  # Optional per-sweep overrides (fallback to trainer.* when absent)
+  hyperparams: {}

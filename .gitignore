@@ -1,0 +1,20 @@
+# vi
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local data & outputs
+data/
+eval_out/
+runs/
+dist/
+
+# macOS
+.DS_Store
