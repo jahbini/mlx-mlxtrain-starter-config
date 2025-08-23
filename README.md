@@ -105,3 +105,23 @@ If you just want to train and use your model quickly, the key outputs are:
   Bash script to reproduce training, fusion, quantization, and generation. 
 
 ---
+
+### layout
+
+repo/
+  configs/
+    default.yaml
+  scripts/
+    00_setup_data_dir.py         # (web scrape / layout init)
+    01_fetch_hf_dataset.py
+    02_prepare_data.py
+    03_train.py
+    04_eval.py
+    05_report.py
+  mlxtrain/
+    __init__.py
+    utils.py                     # load_config(), save_json(), set_logger(), etc.
+  notebooks/
+    walkthrough.ipynb            # calls scripts and shows outputs
+  Makefile                       # optional: `make train`, `make all`
+  README.md
