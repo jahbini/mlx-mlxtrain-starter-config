@@ -1,7 +1,7 @@
 run:
   seed: 42
   alt_seed: 7
-  output_dir: "runs"              # replaces OUT_DIR
+  output_dir: "run"              # replaces OUT_DIR
   experiments: "experiments.csv"
   artifacts: "artifacts.csv"
 
@@ -15,6 +15,27 @@ paths:                            # replaces *_PATH constants
   analysis: "eos_analysis"
   summary: "eos_summary"
   ablations: "ablation_generations.jsonl"
+  
+snapshot:
+  base: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  output_dir: "snapshots"
+  fused:  "fused/model"
+  quant:  "quantized"
+  max_new:  128
+  seed:  7
+  n_shots:  3
+  min_words:  3
+  retries:  2
+  prompts:
+   - "Share a saying about value."
+   - "Offer a short proverb on patience."
+   - "Give a hopeful saying for a widow."
+
+sanity:
+  prompts:
+   - "Share a saying about luck."
+   - "Offer a short proverb on patience."
+   - "Give a hopeful saying for a widow."
 
 eval:
   output_dir: "eval_out"
