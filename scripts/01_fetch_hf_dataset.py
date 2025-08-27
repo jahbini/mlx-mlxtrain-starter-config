@@ -27,9 +27,9 @@ MIN_WORDS   = cfg.data.min_words
 MAX_WORDS   = cfg.data.max_words
 SEED        = cfg.run.seed
 
-out_dir = Path("data"); out_dir.mkdir(exist_ok=True)
-CONTRACT    = out_dir / cfg.paths.contract
-CATALOG     = out_dir / cfg.paths.catalog
+OUT_DIR = Path(cfg.run.output_dir + "/' = cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
+CONTRACT    = OUT_DIR / cfg.paths.contract
+CATALOG     = OUT_DIR / cfg.paths.catalog
 
 from datasets import load_dataset
 from pathlib import Path
@@ -81,12 +81,12 @@ def main():
 	        for t in texts:
 	             f.write(json.dumps({"text": t}, ensure_ascii=False) + "\n")
 
-	train_path = out_dir / "train.jsonl"
-	valid_path = out_dir / "valid.jsonl"
+	train_path = OUT_DIR / "train.jsonl"
+	valid_path = OUT_DIR / "valid.jsonl"
 	write_jsonl(train_path, train)
 	write_jsonl(valid_path, valid)
 
-	print(f"Wrote {len(train)} train, {len(valid)} valid to {out_dir.resolve()}")
+	print(f"Wrote {len(train)} train, {len(valid)} valid to {OUT_DIR.resolve()}")
 
 	# --- Write data_contract.json and data_catalog.json ---
 	def count_lines_bytes(p: Path):
@@ -107,7 +107,7 @@ def main():
 	# Contract (simple schema with detected string field = "text")
 	data_contract = {
 	    "created_utc": created,
-	    "data_dir": str(out_dir.resolve()),
+	    "data_dir": str(OUT_DIR.resolve()),
 	    "filenames": {
 		"train": {"chosen": train_path.name, "resolved": str(train_path.resolve())},
 		"valid": {"chosen": valid_path.name, "resolved": str(valid_path.resolve())},

@@ -21,7 +21,7 @@ import json, textwrap
 from pathlib import Path
 from typing import Dict, Any, List
 
-out_dir = Path(cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
+out_dir = Path(cfg.run.output_dir +"/" + cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
 CONTRACT    = out_dir / cfg.paths.contract
 POLICY      = out_dir / cfg.paths.policy
 

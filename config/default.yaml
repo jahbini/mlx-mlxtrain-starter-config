@@ -5,6 +5,10 @@ run:
   experiments: "experiments.csv"
   artifacts: "artifacts.csv"
 
+experiments:
+  - TinyLlama--TinyLlama-1.1B-Chat-v1.0/
+  - Mistral-7B-Instruct-v0.3/
+
 paths:                            # replaces *_PATH constants
   contract: "data_contract.json"
   catalog:  "data_catalog.json"
@@ -27,7 +31,7 @@ snapshot:
   min_words:  3
   retries:  2
   prompts:
-   - "Share a saying about value."
+   - "Tell us who lives in the house of the three gunas."
    - "Offer a short proverb on patience."
    - "Give a hopeful saying for a widow."
 
@@ -43,6 +47,20 @@ eval:
   policy: "generation_policy.json"
   recreate: "repro.sh"
 
+web:
+  base: "stjohnsjim.com"
+  content_id: "bloviation"
+  user_agent: "SJJ-JSONL/voice-continuer/1.0"
+  request_timeout: 20
+  pause_sec: 0.5
+  valid_fraction: 0.2
+  min_story_words: 120              # skip tiny pages
+  min_prompt_words: 100             # prompt lower bound
+  max_prompt_words: 300             # prompt upper bound
+  min_completion_words: 40          # completion lower bound
+  max_completion_words: 160         # completion upper bound
+  max_examples_per_story: 6         # cap examples per story
+  
 data:
   output_dir: "data"              # replaces OUT_DIR
   hf_dataset: "asuender/motivational-quotes"
@@ -51,6 +69,12 @@ data:
   valid_fraction: 0.02
   min_words: 5
   max_words: 60
+  format:
+    mode: plain            # or sft
+    prompt_key: prompt     # required if mode == sft
+    completion_key: completion
+  split:
+    valid_fraction: 0.02
 
 model:
   name: "microsoft/Phi-4-reasoning-plus"
@@ -72,3 +96,16 @@ sweep:                            # step 6 “experiment matrix”
     # - "mlx-community/phi-2"
   # Optional per-sweep overrides (fallback to trainer.* when absent)
   hyperparams: {}
+
+crawl:
+  mode: urls               # or files
+  urls:
+    seeds_path: seeds.txt
+    max_pages: 50
+    user_agent: "Mozilla/5.0 (MLX-Voice-Crawl)"
+    timeout: 15
+  files:
+    glob: "source_html/*.html"   # used when mode: files
+  filters:
+    min_words: 5
+    max_words: 6000

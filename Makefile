@@ -5,6 +5,7 @@ step:
 environment:
 	echo "starting environment"
 	#python -m pip install -r  requirements.txt
+
 manifest:
 	echo "starting manifest"
 	python scripts/00_manifest.py --config $(CONFIG)
@@ -12,6 +13,10 @@ manifest:
 fetch:
 	echo "starting fetch"
 	python scripts/01_fetch_hf_dataset.py --config $(CONFIG)
+
+web:
+	echo "starting scrape"
+	python scripts/09_crawl4voice.py --config $(CONFIG)
 
 validate:
 	echo "starting validate"
@@ -49,4 +54,6 @@ eval:
 	python scripts/05_eval.py --config $(CONFIG)
 	echo "finished"
 
-all: environment setup fetch validate prompts experiments train register fuse snapshot  eval
+hf: environment setup fetch validate prompts experiments train register fuse snapshot  eval
+
+scrape: environment setup web prompts experiments train register fuse snapshot  eval
