@@ -23,22 +23,18 @@ import json, math, csv, time
 from pathlib import Path
 from typing import Dict, Any, Tuple, List
 
-out_dir = Path(cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
+out_dir = Path(cfg.run.output_dir + "/" + cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
 CONTRACT    = out_dir / cfg.paths.contract
 CATALOG     = out_dir / cfg.paths.catalog
 POLICY      = out_dir / cfg.paths.policy
 REPORT      = out_dir / cfg.paths.report
 
 RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-EXPERIMENTS_CSV = RUN_DIR / "experiments.csv"
+EXPERIMENTS_CSV = RUN_DIR / cfg.paths.experiments
 
 # ---------- EDITABLE BLOCK ----------
 # List your MLX-compatible base models here
-BASE_MODELS = [
-    "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-    # "mlx-community/phi-2",
-    # add more as needed
-]
+EXPERIMENTS = cfg.experiments
 
 # Core hyperparameters (shared across all rows; you can later copy/edit specific rows)
 EPOCHS          = 1               # convenient, we’ll convert to iters
@@ -84,7 +80,7 @@ def estimate_iters(num_train: int, epochs: int, batch: int, accum: int) -> int:
     # MLX lora uses --iters; here we approximate: steps ≈ epochs * num_train / (batch * accum)
     steps = max(1, math.ceil((epochs * max(1, num_train)) / max(1, batch * accum)))
     # also guard a reasonable floor so very tiny sets still do some learning
-    return max(100, steps)
+    return max(1000, steps)
 
 # 1) Load metadata and counts
 ct = load_contract()
@@ -100,7 +96,7 @@ data_dir = Path(ct["data_dir"])
 rows: List[Dict[str, Any]] = []
 timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-for model_id in BASE_MODELS:
+for model_id in EXPERIMENTS:
     model_tag = model_id.replace("/", "--")
     out_root  = RUN_DIR / model_tag
     adapter_path = out_root / "adapter"

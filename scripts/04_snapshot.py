@@ -13,7 +13,7 @@ from mlx_lm import load as mlx_load, generate as mlx_generate
 # --- Config ---
 SNAPSHOT      = Path(cfg.snapshot.output_dir)
 BASE = cfg.snapshot.base
-ADAPTER   = cfg.run.output_dir + "/TinyLlama--TinyLlama-1.1B-Chat-v1.0/adapter"
+ADAPTER   = cfg.run.output_dir + "/" + "microsoft--Phi-3-mini-4k-instruct" +  "/adapter"
 FUSED     = SNAPSHOT / cfg.snapshot.fused         # optional
 QUANT     = SNAPSHOT / cfg.snapshot.quant          # optional
 MAX_NEW   = cfg.snapshot.max_new
@@ -21,7 +21,7 @@ SEED      = cfg.snapshot.seed
 N_SHOTS   = cfg.snapshot.n_shots
 MIN_WORDS = cfg.snapshot.min_words
 RETRIES   = cfg.snapshot.retries
-OUT_DIR       = Path(cfg.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
+OUT_DIR       = Path(cfg.run.output_dir + "/" + cfg.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
 RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
 EVAL_DIR      = Path(cfg.eval.output_dir); EVAL_DIR.mkdir(exist_ok=True)
 EXPERIMENTS   = RUN_DIR / cfg.run.experiments

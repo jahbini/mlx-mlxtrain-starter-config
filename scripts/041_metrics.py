@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
 cfg = load_config()
-OUT_DIR       = Path(cfg.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
+OUT_DIR       = Path(cfg.run.output_dir + "/" + cfg.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
 EVAL_DIR      = Path(cfg.eval.output_dir); EVAL_DIR.mkdir(exist_ok=True)
 RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
 EXPERIMENTS   = RUN_DIR / cfg.run.experiments

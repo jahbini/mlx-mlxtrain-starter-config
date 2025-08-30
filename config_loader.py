@@ -82,7 +82,7 @@ def _env_overrides(prefix: str = "CFG_") -> dict:
 # --- Main loader ---
 def load_config(
     default_path: str = "config/default.yaml",
-    local_path: str = "config/local.yaml",
+    local_path: str = "./override.yaml",
     cli_overrides: dict | None = None,
     env_prefix: str = "CFG_",
 ) -> Config:

@@ -19,7 +19,7 @@ VALID_FRACTION = cfg.web.valid_fraction
 
 from pathlib import Path
 
-OUT_DIR = Path(cfg.run.output_dir + "/" + cfg.data.output_dir )
+OUT_DIR = Path(cfg.run.output_dir + "/" + cfg.data.output_dir ); OUT_DIR.mkdir(exist_ok=True)
 CONTRACT_PATH = OUT_DIR / cfg.paths.contract
 CATALOG_PATH  = OUT_DIR / cfg.paths.catalog
 REPORT_PATH   = OUT_DIR / cfg.paths.report

@@ -15,7 +15,7 @@ from typing import Dict, Any, List
 
 from config_loader import load_config
 cfg = load_config()
-out_dir = Path(cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
+
 RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
 EXPERIMENTS = RUN_DIR / cfg.run.experiments
 ARTIFACTS     = RUN_DIR / cfg.run.artifacts

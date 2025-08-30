@@ -16,15 +16,16 @@ from typing import Dict, Any, List, Optional
 
 cfg = load_config()
 
-out_dir = Path("data"); out_dir.mkdir(exist_ok=True)
+out_dir = Path(cfg.data.output_dir ); out_dir.mkdir(exist_ok=True)
 
 
 RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-EXPERIMENTS = RUN_DIR / cfg.run.experiments
+EXxxxPERIMENTS_CSV = RUN_DIR / cfg.experiments
+EXPERIMENTS_CSV = cfg.run.data.exp      # monkey
 
 
 # ---- Controls ----
-DRY_RUN = False                 # set True to just print commands
+DRY_RUN = False
 ONLY_MODEL_ID = ""              # or set to a specific model_id string
 ONLY_ROW = None                 # or an integer index
 # Optional lora reporting/eval settings (set to 0 to skip passing)

@@ -17,7 +17,7 @@ import json, re, unicodedata, statistics, hashlib
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
-out_dir = Path("data"); out_dir.mkdir(exist_ok=True)
+out_dir = Path(cfg.run.output_dir + "/" + cfg.data.output_dir ); out_dir.mkdir(exist_ok=True)
 CONTRACT    = out_dir / cfg.paths.contract
 REPORT      = out_dir / cfg.paths.report
 

@@ -13,7 +13,6 @@ from config_loader import load_config
 from pathlib import Path
 
 ABL_JSONL = Path("eval_out/ablation_generations.jsonl")
-ARTIFACTS = Path("artifacts.json")
 REPORT_MD = Path("eval_out/report.md")
 POLICY_JS = Path("generation_policy.json")
 cfg = load_config()

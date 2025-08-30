@@ -19,6 +19,7 @@ LOCKFILE = OUT_DIR / "requirements.lock"
 MANIFEST_YAML = OUT_DIR / "run_manifest.yaml"
 MANIFEST_JSON = OUT_DIR / "run_manifest.json"
 SEED = CFG.run.seed
+ARTIFACTS = CFG.paths.artifacts
 # ----------------------------------------------------
 
 # 1) Set seeds for determinism (Python & NumPy)
