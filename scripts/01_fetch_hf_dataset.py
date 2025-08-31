@@ -27,9 +27,9 @@ MIN_WORDS   = cfg.data.min_words
 MAX_WORDS   = cfg.data.max_words
 SEED        = cfg.run.seed
 
-OUT_DIR = Path(cfg.run.output_dir + "/' = cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
-CONTRACT    = OUT_DIR / cfg.paths.contract
-CATALOG     = OUT_DIR / cfg.paths.catalog
+OUT_DIR = Path(cfg.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
+CONTRACT    = OUT_DIR / cfg.data.contract
+CATALOG     = OUT_DIR / cfg.data.catalog
 
 from datasets import load_dataset
 from pathlib import Path

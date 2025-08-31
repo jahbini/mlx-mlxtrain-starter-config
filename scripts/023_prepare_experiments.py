@@ -23,14 +23,14 @@ import json, math, csv, time
 from pathlib import Path
 from typing import Dict, Any, Tuple, List
 
-out_dir = Path(cfg.run.output_dir + "/" + cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
-CONTRACT    = out_dir / cfg.paths.contract
-CATALOG     = out_dir / cfg.paths.catalog
-POLICY      = out_dir / cfg.paths.policy
-REPORT      = out_dir / cfg.paths.report
+out_dir = Path(cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
+CONTRACT    = out_dir / cfg.data.contract
+CATALOG     = out_dir / cfg.data.catalog
+POLICY      = out_dir / cfg.data.policy
+REPORT      = out_dir / cfg.data.report
 
 RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-EXPERIMENTS_CSV = RUN_DIR / cfg.paths.experiments
+EXPERIMENTS_CSV = RUN_DIR / cfg.data.experiments_csv
 
 # ---------- EDITABLE BLOCK ----------
 # List your MLX-compatible base models here
@@ -44,7 +44,7 @@ MAX_SEQ_LENGTH  = 512
 LEARNING_RATE   = 2e-4
 BF16            = True
 # Optional: override `iters` directly (0 = auto from dataset & epochs)
-ITERS_OVERRIDE  = 0
+ITERS_OVERRIDE  = 500
 # -----------------------------------
 
 def load_contract() -> Dict[str, Any]:

@@ -16,8 +16,8 @@ import csv
 
 out_dir = Path(cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
 RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-EXPERIMENTS = RUN_DIR / cfg.run.experiments
-ARTIFACTS     = RUN_DIR / cfg.run.artifacts
+EXPERIMENTS_CSV = RUN_DIR / cfg.data.experiments_csv
+ARTIFACTS     = RUN_DIR / cfg.data.artifacts
 
 
 def sha256_file(p: Path) -> str:
@@ -48,10 +48,10 @@ def load_rows(path: Path):
         rows = [dict(x) for x in r]
     return rows
 
-if not EXPERIMENTS.exists():
+if not EXPERIMENTS_CSV.exists():
     raise SystemExit("experiments.csv not found (run Step 6).")
 
-rows = load_rows(EXPERIMENTS)
+rows = load_rows(EXPERIMENTS_CSV)
 registry: Dict[str, Any] = {
     "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     "runs": []

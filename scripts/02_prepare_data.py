@@ -17,9 +17,9 @@ import json, re, unicodedata, statistics, hashlib
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
-out_dir = Path(cfg.run.output_dir + "/" + cfg.data.output_dir ); out_dir.mkdir(exist_ok=True)
-CONTRACT    = out_dir / cfg.paths.contract
-REPORT      = out_dir / cfg.paths.report
+out_dir = Path(cfg.data.output_dir ); out_dir.mkdir(exist_ok=True)
+CONTRACT    = out_dir / cfg.data.contract
+REPORT      = out_dir / cfg.data.report
 
 # Heuristics: potential stop/EOS markers to scan for
 EOS_MARKERS = [

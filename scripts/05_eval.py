@@ -19,8 +19,7 @@ cfg = load_config()
 #OUT_DIR       = Path(cfg.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
 EVAL_DIR      = Path(cfg.eval.output_dir); EVAL_DIR.mkdir(exist_ok=True)
 RUN_DIR       = Path(cfg.run.output_dir)
-#EXPERIMENTS   = RUN_DIR / cfg.run.experiments
-ARTIFACTS     = RUN_DIR / cfg.run.artifacts
+ARTIFACTS     = RUN_DIR / cfg.data.artifacts
 #CONTRACT      = OUT_DIR / cfg.paths.contract
 #GEN_JSONL     = EVAL_DIR / (cfg.paths.generations + ".jsonl" )
 #GEN_CSV       = EVAL_DIR / (cfg.paths.generations + ".csv")

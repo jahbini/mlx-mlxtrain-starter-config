@@ -17,8 +17,7 @@ from config_loader import load_config
 cfg = load_config()
 
 RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-EXPERIMENTS = RUN_DIR / cfg.run.experiments
-ARTIFACTS     = RUN_DIR / cfg.run.artifacts
+ARTIFACTS     = RUN_DIR / cfg.data.artifacts
 
 # ---- Controls ----
 DO_FUSE   = True           # set False to skip fusing (if already fused)

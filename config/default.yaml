@@ -8,13 +8,11 @@ experiments:
   - TinyLlama/TinyLlama-1.1B-Chat-v1.0
 
 paths:                            # replaces *_PATH constants
-  policy:   "format_policy.json"
   generations: "generations"
   tokenizer: "tokenizer_meta"
   analysis: "eos_analysis"
   summary: "eos_summary"
   ablations: "ablation_generations.jsonl"
-  artifacts: "artifacts.json"
   
 snapshot:
   output_dir: "snapshots"
@@ -58,11 +56,13 @@ web:
   
 data:
   output_dir: "run/data"              # replaces OUT_DIR
+  experiments_csv: "experiments.csv"
+  artifacts: "artifacts.json"
   contract: "data_contract.json"
+  policy:   "format_policy.json"
   catalog:  "data_catalog.json"
   report:   "data_report.json"
   hf_dataset: "asuender/motivational-quotes"
-  experiments_csv: "experiments.csv"
   subset: "quotes"
   mode: "sft"
   valid_fraction: 0.02

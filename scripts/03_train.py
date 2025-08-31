@@ -20,8 +20,7 @@ out_dir = Path(cfg.data.output_dir ); out_dir.mkdir(exist_ok=True)
 
 
 RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-EXxxxPERIMENTS_CSV = RUN_DIR / cfg.experiments
-EXPERIMENTS_CSV = cfg.run.data.exp      # monkey
+EXPERIMENTS_CSV = RUN_DIR / cfg.data.experiments_csv      # monkey
 
 
 # ---- Controls ----
@@ -70,7 +69,7 @@ def build_cmd(row: Dict[str, Any]) -> str:
 
     # NOTE: no --gradient-accumulation / --bf16 / --log-dir
     parts = [
-        f"{py} -m mlx_lm.lora",
+        f"{py} -m mlx_lm lora",
         f"--model {model}",
         f"--data {data_dir}",
         "--train",
@@ -93,7 +92,7 @@ def run_cmd(cmd: str) -> int:
         return 0
     return subprocess.run(cmd, shell=True).returncode
 
-rows = load_rows(EXPERIMENTS)
+rows = load_rows(EXPERIMENTS_CSV)
 todo = select_rows(rows, ONLY_MODEL_ID, ONLY_ROW)
 
 print(f"Found {len(rows)} rows; running {len(todo)} row(s). DRY_RUN={DRY_RUN}")
