@@ -12,7 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
 from pathlib import Path
 
-ABL_JSONL = Path("eval_out/ablation_generations.jsonl")
+#ABL_JSONL = Path("eval_out/ablation_generations.jsonl")
 REPORT_MD = Path("eval_out/report.md")
 POLICY_JS = Path("generation_policy.json")
 cfg = load_config()
@@ -23,9 +23,9 @@ ARTIFACTS     = RUN_DIR / cfg.data.artifacts
 #CONTRACT      = OUT_DIR / cfg.paths.contract
 #GEN_JSONL     = EVAL_DIR / (cfg.paths.generations + ".jsonl" )
 #GEN_CSV       = EVAL_DIR / (cfg.paths.generations + ".csv")
-OUT_SUM       = EVAL_DIR / (cfg.paths.summary + ".csv")
-OUT_JSON      = EVAL_DIR / (cfg.paths.analysis + ".json")
-ABL_JSONL     = EVAL_DIR / cfg.paths.ablations
+OUT_SUM       = EVAL_DIR / (cfg.eval.summary + ".csv")
+OUT_JSON      = EVAL_DIR / (cfg.eval.analysis + ".json")
+ABL_JSONL     = EVAL_DIR / cfg.eval.ablations
 REPORT_MD     = EVAL_DIR / cfg.eval.report
 POLICY_JS     = EVAL_DIR / cfg.eval.policy
 if not ABL_JSONL.exists():

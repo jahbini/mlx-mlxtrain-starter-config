@@ -27,8 +27,8 @@ EVAL_DIR = Path(cfg.eval.output_dir)
 EVAL_DIR.mkdir(exist_ok=True)
 CONTRACT = OUT_DIR / cfg.data.contract
 
-JSONL_PATH = EVAL_DIR / (cfg.paths.generations + ".jsonl")
-CSV_PATH = EVAL_DIR / (cfg.paths.generations + ".csv")
+JSONL_PATH = EVAL_DIR / (cfg.eval.generations + ".jsonl")
+CSV_PATH = EVAL_DIR / (cfg.eval.generations + ".csv")
 TOKMETA = OUT_DIR / (cfg.paths.tokenizer + ".json")
 CUSTOM_STOP = "\n\n"
 MODES = ["default_eos", "no_eos", "custom_stop"]

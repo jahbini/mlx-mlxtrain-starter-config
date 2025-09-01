@@ -8,11 +8,7 @@ experiments:
   - TinyLlama/TinyLlama-1.1B-Chat-v1.0
 
 paths:                            # replaces *_PATH constants
-  generations: "generations"
   tokenizer: "tokenizer_meta"
-  analysis: "eos_analysis"
-  summary: "eos_summary"
-  ablations: "ablation_generations.jsonl"
   
 snapshot:
   output_dir: "snapshots"
@@ -35,10 +31,14 @@ sanity:
    - "Give a hopeful saying for a widow."
 
 eval:
+  generations: "generations"
   output_dir: "eval_out"
+  ablations: "ablation_generations.jsonl"
   report: "report.md"
   policy: "generation_policy.json"
   recreate: "repro.sh"
+  analysis: "eos_analysis"
+  summary: "eos_summary"
 
 web:
   base: "stjohnsjim.com"

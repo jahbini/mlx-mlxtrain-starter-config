@@ -16,13 +16,13 @@ cfg = load_config()
 OUT_DIR       = Path(cfg.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
 EVAL_DIR      = Path(cfg.eval.output_dir); EVAL_DIR.mkdir(exist_ok=True)
 RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-EXPERIMENTS   = RUN_DIR / cfg.run.experiments
-ARTIFACTS     = RUN_DIR / cfg.run.artifacts
-CONTRACT      = OUT_DIR / cfg.paths.contract
-GEN_JSONL     = EVAL_DIR / (cfg.paths.generations + ".jsonl" )
-GEN_CSV       = EVAL_DIR / (cfg.paths.generations + ".csv")
-OUT_SUM       = EVAL_DIR / (cfg.paths.summary + ".csv")
-OUT_JSON      = EVAL_DIR / (cfg.paths.analysis + ".json")
+ARTIFACTS     = RUN_DIR / cfg.data.artifacts
+CONTRACT      = OUT_DIR / cfg.data.contract
+GEN_JSONL     = EVAL_DIR / (cfg.eval.generations + ".jsonl" )
+GEN_CSV       = EVAL_DIR / (cfg.eval.generations + ".csv")
+OUT_SUM       = EVAL_DIR / (cfg.eval.summary + ".csv")
+OUT_JSON      = EVAL_DIR / (cfg.eval.analysis + ".json")
+ABL_PATH      = EVAL_DIR / cfg.eval.ablations
 
 # ---- Controls ----
 ONLY_MODEL_ID = ""  # "" = all; or exact id
@@ -144,11 +144,9 @@ for run in runs:
                     })
 
 # Save quick table
-out_path = EVAL_DIR / cfg.paths.ablations
-out_path.parent.mkdir(parents=True, exist_ok=True)
-with out_path.open("w", encoding="utf-8") as f:
+with ABL_PATH.open("w", encoding="utf-8") as f:
     for r in rows:
         f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
-print(f"\nSaved detailed ablation outputs to {out_path}")
+print(f"\nSaved detailed ablation outputs to {ABL_PATH}")
 print("Tip: Look for cases where 'fused' + 'fewshot' fills in while 'quantized' + 'plain' is empty.")

@@ -20,10 +20,7 @@ REPORT      = $(EVAL_DIR)/report.md
 # 0) Manifest
 manifest:
 	$(PY) scripts/00_manifest.py
-
-# 1) Setup (crawl / data dir init)
-setup:
-	$(PY) scripts/09_crawl4_data_dir.py
+	mkdir $(DATA_DIR)
 
 # 2) Fetch HF dataset
 fetch-hf: $(DATA_DIR)
@@ -46,7 +43,7 @@ register: $(CONTRACT)
 	$(PY) scripts/031_register.py
 
 # 3d) Fuse model (optional)
-fuse diagnostics: $(ARTIFACTS)
+fuse: $(ARTIFACTS)
 	$(PY) scripts/032_fuse.py
 
 # 4) Train
@@ -78,11 +75,12 @@ repl: $(ARTIFACTS)
 	$(PY) scripts/repl.py
 
 # Convenience groups
-data: setup fetch-hf prepare prepare-prompts prepare-experiments register
+data: fetch-hf prepare prepare-prompts prepare-experiments register
 diagnostics: snapshot metrics sanity
 
-all: manifest data train diagnostics  eval  report
+all: manifest data train fuse diagnostics  eval
 	@echo "Pipeline complete. For interactive test: make repl"
 
 clean:
 	@echo "Add rm -rf $(RUN_DIR) $(DATA_DIR) $(EVAL_DIR) if you want a hard clean"
+	rm -rf $(RUN_DIR) $(DATA_DIR) $(EVAL_DIR)

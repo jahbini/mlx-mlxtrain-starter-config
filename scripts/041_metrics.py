@@ -8,16 +8,15 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
 cfg = load_config()
-OUT_DIR       = Path(cfg.run.output_dir + "/" + cfg.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
+OUT_DIR       = Path(cfg.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
 EVAL_DIR      = Path(cfg.eval.output_dir); EVAL_DIR.mkdir(exist_ok=True)
 RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-EXPERIMENTS   = RUN_DIR / cfg.run.experiments
 #ARTIFACTS     = RUN_DIR / cfg.run.artifacts
-CONTRACT      = OUT_DIR / cfg.paths.contract
-GEN_JSONL     = EVAL_DIR / (cfg.paths.generations + ".jsonl" )
-GEN_CSV       = EVAL_DIR / (cfg.paths.generations + ".csv")
-OUT_SUM       = EVAL_DIR / (cfg.paths.summary + ".csv")
-OUT_JSON      = EVAL_DIR / (cfg.paths.analysis + ".json")
+CONTRACT      = OUT_DIR / cfg.data.contract
+GEN_JSONL     = EVAL_DIR / (cfg.eval.generations + ".jsonl" )
+GEN_CSV       = EVAL_DIR / (cfg.eval.generations + ".csv")
+OUT_SUM       = EVAL_DIR / (cfg.eval.summary + ".csv")
+OUT_JSON      = EVAL_DIR / (cfg.eval.analysis + ".json")
 
 
 if not GEN_JSONL.exists():

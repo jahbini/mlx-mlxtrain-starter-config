@@ -69,7 +69,7 @@ def build_cmd(row: Dict[str, Any]) -> str:
 
     # NOTE: no --gradient-accumulation / --bf16 / --log-dir
     parts = [
-        f"{py} -m mlx_lm lora",
+        f"{py} -m mlx_lm.lora",
         f"--model {model}",
         f"--data {data_dir}",
         "--train",

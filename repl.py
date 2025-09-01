@@ -16,7 +16,7 @@ cfg = load_config()
 
 RUN_DIR = Path(cfg.run.output_dir)            # e.g., "run"
 
-ARTIFACTS = RUN_DIR / cfg.run.artifacts  # e.g., run/artifacts.json
+ARTIFACTS = RUN_DIR / cfg.data.artifacts  # e.g., run/artifacts.json
 
 import json
 
