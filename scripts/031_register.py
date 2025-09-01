@@ -2,23 +2,23 @@ from __future__ import annotations
 from pathlib import Path
 import sys, json, hashlib, os, time
 from datasets import load_from_disk
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from config_loader import load_config
-cfg = load_config()
-# STEP 8 — Artifact Registry
-# Reads experiments.csv and registers produced artifacts (adapters, logs).
-# - Computes SHA256 & sizes
-# - Writes artifacts.json
-# - Creates per-model symlinks: latest_adapter -> adapter , latest_logs -> logs2
-
 from typing import Dict, Any, List
 import csv
 
-out_dir = Path(cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
-RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-EXPERIMENTS_CSV = RUN_DIR / cfg.data.experiments_csv
-ARTIFACTS     = RUN_DIR / cfg.data.artifacts
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config_loader import load_config
+cfg = load_config()
 
+# STEP 8 — Artifact Registry
+# Reads experiments.csv and registers produced artifacts (adapters, logs, fused, quantized).
+# - Computes SHA256 & sizes
+# - Writes artifacts.json
+# - Creates per-model symlinks: latest_adapter -> adapter , latest_logs -> logs
+
+out_dir = Path(cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
+RUN_DIR = Path(cfg.run.output_dir)
+EXPERIMENTS_CSV = RUN_DIR / cfg.data.experiments_csv
+ARTIFACTS = RUN_DIR / cfg.data.artifacts
 
 def sha256_file(p: Path) -> str:
     h = hashlib.sha256()
@@ -60,9 +60,14 @@ registry: Dict[str, Any] = {
 for r in rows:
     model_id = r["model_id"]
     model_tag = model_id.replace("/", "--")
-    out_root = Path(r["adapter_path"]).parent.parent  # runs/<model_tag>
+    out_root = RUN_DIR / model_tag
     adapter_dir = Path(r["adapter_path"])
     logs_dir    = Path(r["log_dir"])
+
+    fused_dir = out_root / "fused" / "model"
+    quantized_dir = out_root / "quantized" / "model"
+    fused_dir.parent.mkdir(parents=True, exist_ok=True)
+    quantized_dir.parent.mkdir(parents=True, exist_ok=True)
 
     # create handy symlinks
     try:
@@ -79,6 +84,8 @@ for r in rows:
         "output_root": str(out_root.resolve()),
         "adapter_dir": str(adapter_dir.resolve()),
         "logs_dir": str(logs_dir.resolve()),
+        "fused_dir": str(fused_dir.resolve()),
+        "quantized_dir": str(quantized_dir.resolve()),
         "files": {
             "adapter": gather_dir_files(adapter_dir),
             "logs": gather_dir_files(logs_dir),
@@ -87,24 +94,11 @@ for r in rows:
             "iters": int(float(r.get("iters", 0) or 0)),
             "batch_size": int(float(r.get("batch_size", 0) or 0)),
             "max_seq_length": int(float(r.get("max_seq_length", 0) or 0)),
-            "learning_rate": float(r.get("learning_rate", 0.0) or 0.0),
         }
     }
+
     registry["runs"].append(entry)
 
+# Write to artifacts.json
 ARTIFACTS.write_text(json.dumps(registry, indent=2), encoding="utf-8")
-
-# Console summary
-print("=== ARTIFACT REGISTRY ===")
-print("Wrote:", ARTIFACTS)
-for run in registry["runs"]:
-    adap_files = run["files"]["adapter"]
-    n = len(adap_files)
-    sizes = sum(f["bytes"] for f in adap_files)
-    print(f"- {run['model_id']}")
-    print("   adapter_dir:", run["adapter_dir"])
-    print("   logs_dir:   ", run["logs_dir"])
-    print(f"   adapter files: {n}  total bytes: {sizes:,}")
-    if n:
-        print("   latest:", adap_files[-1]["rel"], adap_files[-1]["bytes"], "bytes")
-    print("   symlinks: latest_adapter, latest_logs")
+print(f"[OK] Wrote artifact registry: {ARTIFACTS}")
