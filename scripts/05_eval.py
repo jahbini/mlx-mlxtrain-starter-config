@@ -47,12 +47,13 @@ def summarize(g):
         avg_len=round(float(avg_len),3), med_len=float(med_len)
     ))
 
-agg = df.groupby(["artifact","prompt_variant"], as_index=False, group_keys=False).apply(summarize)
-
+agg = df.groupby(["model_id","artifact","prompt_variant"], as_index=False, group_keys=False).apply(summarize)
 # Pick winner by heuristic:
 # 1) lowest empty_rate, 2) highest sent_end_rate, 3) highest avg_len
 winner = (agg.sort_values(["empty_rate","sent_end_rate","avg_len"], ascending=[True,False,False])
             .iloc[0].to_dict())
+runner_up = (agg.sort_values(["empty_rate","sent_end_rate","avg_len"], ascending=[True,False,False])
+            .iloc[1].to_dict())
 
 # Build a human-friendly table
 def pct(x): return f"{x*100:.1f}%"
@@ -65,15 +66,19 @@ ts = time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime())
 lines = []
 lines += [f"# Learning Ablation Report  \n_{ts}_\n"]
 lines += ["## Summary by artifact × prompt_variant"]
-lines += ["\n| artifact | prompt_variant | n | empty_rate | sent_end_rate | avg_len | med_len |",
-          "|---|---:|---:|---:|---:|---:|---:|"]
+lines += ["\n| model         | artifact | prompt_variant | n | empty_rate | sent_end_rate | avg_len | med_len |",
+          "|----------|---|---:|---:|---:|---:|---:|---:|"]
 for _, r in table.iterrows():
-    lines += [f"| {r['artifact']} | {r['prompt_variant']} | {int(r['n'])} | {r['empty_rate']} | {r['sent_end_rate']} | {r['avg_len']} | {int(r['med_len'])} |"]
+    lines += [f"| {r['model_id']}  |  {r['artifact']} | {r['prompt_variant']} | {int(r['n'])} | {r['empty_rate']} | {r['sent_end_rate']} | {r['avg_len']} | {int(r['med_len'])} |"]
 
 lines += ["\n## Chosen policy"]
+lines += ["\n### Winner"]
 lines += [f"- **artifact**: `{winner['artifact']}`",
           f"- **prompt_variant**: `{winner['prompt_variant']}`",
           "- Rationale: minimize empty outputs, then prefer clean sentence endings and adequate length."]
+lines += ["\n### Second"]
+lines += [f"- **artifact**: `{runner_up['artifact']}`",
+          f"- **prompt_variant**: `{runner_up['prompt_variant']}`"]
 
 # Add a tiny sample grid (first row per prompt for the winner)
 win_mask = (df["artifact"]==winner["artifact"]) & (df["prompt_variant"]==winner["prompt_variant"]) & (df["budget"]=="long")
@@ -112,6 +117,8 @@ print(f"Wrote {POLICY_JS}")
 
 # Console preview
 print("\n=== WINNER ===")
-print(f"artifact={winner['artifact']}  prompt_variant={winner['prompt_variant']}")
+print(f"model={winner['model_id']} --- artifact={winner['artifact']}  prompt_variant={winner['prompt_variant']}")
+print("\n=== RUNNER-UP ===")
+print(f"model={runner_up['model_id']} --- artifact={runner_up['artifact']}  prompt_variant={runner_up['prompt_variant']}")
 print("\n=== TABLE ===")
 print(agg.to_string(index=False))
