@@ -33,7 +33,7 @@ sanity:
 eval:
   generations: "generations"
   output_dir: "eval_out"
-  ablations: "ablation_generations.jsonl"
+  ablations: "ablation_generations"
   report: "report.md"
   policy: "generation_policy.json"
   recreate: "repro.sh"

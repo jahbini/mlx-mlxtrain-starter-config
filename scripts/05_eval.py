@@ -25,7 +25,7 @@ ARTIFACTS     = RUN_DIR / cfg.data.artifacts
 #GEN_CSV       = EVAL_DIR / (cfg.paths.generations + ".csv")
 OUT_SUM       = EVAL_DIR / (cfg.eval.summary + ".csv")
 OUT_JSON      = EVAL_DIR / (cfg.eval.analysis + ".json")
-ABL_JSONL     = EVAL_DIR / cfg.eval.ablations
+ABL_JSONL     = EVAL_DIR / ( cfg.eval.ablations + ".jsonl")
 REPORT_MD     = EVAL_DIR / cfg.eval.report
 POLICY_JS     = EVAL_DIR / cfg.eval.policy
 if not ABL_JSONL.exists():

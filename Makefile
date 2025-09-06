@@ -20,7 +20,7 @@ REPORT      = $(EVAL_DIR)/report.md
 # 0) Manifest
 manifest:
 	$(PY) scripts/00_manifest.py
-	mkdir $(DATA_DIR)
+	-mkdir $(DATA_DIR)
 
 # 2) Fetch HF dataset
 fetch-hf: $(DATA_DIR)

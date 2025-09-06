@@ -22,7 +22,8 @@ GEN_JSONL     = EVAL_DIR / (cfg.eval.generations + ".jsonl" )
 GEN_CSV       = EVAL_DIR / (cfg.eval.generations + ".csv")
 OUT_SUM       = EVAL_DIR / (cfg.eval.summary + ".csv")
 OUT_JSON      = EVAL_DIR / (cfg.eval.analysis + ".json")
-ABL_PATH      = EVAL_DIR / cfg.eval.ablations
+ABL_PATH      = EVAL_DIR / (cfg.eval.ablations + ".jsonl")
+ABL_YAML      = EVAL_DIR / ( cfg.eval.ablations +".yaml" )
 
 # ---- Controls ----
 ONLY_MODEL_ID = ""  # "" = all; or exact id
@@ -149,4 +150,27 @@ with ABL_PATH.open("w", encoding="utf-8") as f:
         f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 print(f"\nSaved detailed ablation outputs to {ABL_PATH}")
+# --- NEW: write a grouped-by-prompt YAML snapshot with full records ---
+from collections import defaultdict
+
+
+try:
+    import yaml  # requires PyYAML
+except ImportError:
+    raise RuntimeError(
+        "PyYAML is required to write eval_out/generations.yaml. "
+        "Install with: pip install pyyaml"
+    )
+
+# Group all records by prompt; keep each record 'as-is' (includes model_id, mode, generation, etc.)
+grouped = defaultdict(list)
+for r in rows:
+    prompt = (r.get("prompt") or "").strip()
+    grouped[prompt].append(r)
+
+# Write YAML (human-friendly, preserve insertion order, allow Unicode)
+with ABL_YAML.open("w", encoding="utf-8") as yf:
+    yaml.safe_dump(dict(grouped), yf, allow_unicode=True, sort_keys=False)
+
+print(f"Wrote grouped YAML → {ABL_YAML}")
 print("Tip: Look for cases where 'fused' + 'fewshot' fills in while 'quantized' + 'plain' is empty.")

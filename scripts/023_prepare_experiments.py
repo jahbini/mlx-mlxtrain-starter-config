@@ -44,7 +44,7 @@ MAX_SEQ_LENGTH  = 512
 LEARNING_RATE   = 2e-4
 BF16            = True
 # Optional: override `iters` directly (0 = auto from dataset & epochs)
-ITERS_OVERRIDE  = 500
+ITERS_OVERRIDE  = 0
 # -----------------------------------
 
 def load_contract() -> Dict[str, Any]:
@@ -80,7 +80,7 @@ def estimate_iters(num_train: int, epochs: int, batch: int, accum: int) -> int:
     # MLX lora uses --iters; here we approximate: steps ≈ epochs * num_train / (batch * accum)
     steps = max(1, math.ceil((epochs * max(1, num_train)) / max(1, batch * accum)))
     # also guard a reasonable floor so very tiny sets still do some learning
-    return max(1000, steps)
+    return max(10000, steps)
 
 # 1) Load metadata and counts
 ct = load_contract()

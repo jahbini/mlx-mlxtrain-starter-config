@@ -28,8 +28,8 @@ DRY_RUN = False
 ONLY_MODEL_ID = ""              # or set to a specific model_id string
 ONLY_ROW = None                 # or an integer index
 # Optional lora reporting/eval settings (set to 0 to skip passing)
-STEPS_PER_REPORT = 10
-STEPS_PER_EVAL   = 50
+STEPS_PER_REPORT = 1000
+STEPS_PER_EVAL   = 5000
 VAL_BATCHES      = 1
 # ------------------
 
@@ -69,7 +69,7 @@ def build_cmd(row: Dict[str, Any]) -> str:
 
     # NOTE: no --gradient-accumulation / --bf16 / --log-dir
     parts = [
-        f"{py} -m mlx_lm.lora",
+        f"{py} -m mlx_lm lora",
         f"--model {model}",
         f"--data {data_dir}",
         "--train",
@@ -79,6 +79,7 @@ def build_cmd(row: Dict[str, Any]) -> str:
         f"--learning-rate {lr}",
         f"--max-seq-length {maxlen}",
         f"--adapter-path {adapter}",
+        f"--num-layers -1",
     ]
     if VAL_BATCHES:      parts += [f"--val-batches {int(VAL_BATCHES)}"]
     if STEPS_PER_REPORT: parts += [f"--steps-per-report {int(STEPS_PER_REPORT)}"]
