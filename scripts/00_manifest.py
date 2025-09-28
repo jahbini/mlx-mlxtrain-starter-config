@@ -6,14 +6,14 @@
 
 import os, sys, platform, subprocess, json, time, hashlib, shlex
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from config_loader import load_config
 
 from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config_loader import load_config
 
 # ---------- Configuration (edit as needed) ----------
 CFG = load_config()  # pulls default.yaml, then local.yaml, then CFG_* env, then (optionally) pass a dict of overrides
-#print("JIM",CFG)
+print("JIM config",CFG)
 OUT_DIR = Path(CFG.run.output_dir)                  # where to write outputs
 LOCKFILE = OUT_DIR / "requirements.lock"
 MANIFEST_YAML = OUT_DIR / "run_manifest.yaml"

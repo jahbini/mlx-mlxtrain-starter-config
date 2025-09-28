@@ -86,12 +86,29 @@ def build_cmd(row: Dict[str, Any]) -> str:
     if STEPS_PER_EVAL:   parts += [f"--steps-per-eval {int(STEPS_PER_EVAL)}"]
     return " ".join(parts)
 
-def run_cmd(cmd: str) -> int:
+import subprocess
+
+def run_cmd(cmd: str, log_path: str = "run/lora_last.log") -> int:
     print("\n[MLX train]", cmd)
     if DRY_RUN:
         print("DRY_RUN=True -> not executing.")
         return 0
-    return subprocess.run(cmd, shell=True).returncode
+
+    with open(log_path, "w", encoding="utf-8") as log_file:
+        process = subprocess.run(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        log_file.write(process.stdout)
+
+    if process.returncode != 0:
+        print(f"❌ Training failed. See log: {log_path}")
+    else:
+        print(f"✅ Training completed. Log: {log_path}")
+    return process.returncode
 
 rows = load_rows(EXPERIMENTS_CSV)
 todo = select_rows(rows, ONLY_MODEL_ID, ONLY_ROW)

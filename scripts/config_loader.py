@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, json, argparse
+import sys, os, json, argparse
 from copy import deepcopy
 
 try:
@@ -57,6 +57,7 @@ def _deep_update(dst: dict, src: dict) -> dict:
     return dst
 
 def _load_yaml(path: str) -> dict:
+    print("JIM yaml Load from", path)
     if not os.path.exists(path):
         return {}
     with open(path, "r") as f:
@@ -80,7 +81,7 @@ def _env_overrides(prefix: str = "CFG_") -> dict:
 
 
 # --- Main loader ---
-def load_config(
+def xload_config(
     default_path: str = "config/default.yaml",
     local_path: str = "./override.yaml",
     cli_overrides: dict | None = None,
@@ -97,6 +98,41 @@ def load_config(
     if cli_overrides:
         _deep_update(cfg, cli_overrides)
 
+    return Config(cfg)
+
+import os
+# --- Main loader ---
+def load_config(
+    default_path: str = os.environ["EXEC"]+ "/config/default.yaml",
+    local_path: str = None,
+    cli_overrides: dict | None = None,
+    env_prefix: str = "CFG_",
+) -> Config:
+    """
+    Precedence (lowest -> highest):
+      default.yaml < local.yaml (from CLI or default) < environment (CFG_*) < cli_overrides
+    Returns a Config object with dot-access.
+    """
+    print("JIM BAD",os.environ["EXEC"],os.environ["PWD"],default_path)
+
+    # detect CLI-provided config path (without argparse)
+    override_arg = None
+    for i, arg in enumerate(sys.argv):
+        if arg == "--config" and i + 1 < len(sys.argv):
+            override_arg = sys.argv[i + 1]
+            break
+        elif arg.startswith("--config="):
+            override_arg = arg.split("=", 1)[1]
+            break
+
+    if local_path is None:
+        local_path = override_arg if override_arg else "./override.yaml"
+
+    cfg = _load_yaml(default_path)
+    _deep_update(cfg, _load_yaml(local_path))
+    _deep_update(cfg, _env_overrides(env_prefix))
+    if cli_overrides:
+        _deep_update(cfg, cli_overrides)
     return Config(cfg)
 
 
