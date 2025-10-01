@@ -57,7 +57,6 @@ def _deep_update(dst: dict, src: dict) -> dict:
     return dst
 
 def _load_yaml(path: str) -> dict:
-    print("JIM yaml Load from", path)
     if not os.path.exists(path):
         return {}
     with open(path, "r") as f:
@@ -113,7 +112,6 @@ def load_config(
       default.yaml < local.yaml (from CLI or default) < environment (CFG_*) < cli_overrides
     Returns a Config object with dot-access.
     """
-    print("JIM BAD",os.environ["EXEC"],os.environ["PWD"],default_path)
 
     # detect CLI-provided config path (without argparse)
     override_arg = None

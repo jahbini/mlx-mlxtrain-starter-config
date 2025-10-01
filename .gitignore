@@ -1,6 +1,9 @@
 # vi
 *.swp
 
+node_modules/
+pnpm-lock.yaml
+
 # Python
 __pycache__/
 *.pyc
