@@ -185,10 +185,31 @@ emitDot = (steps, outPath) ->
   catch e
     console.error "Failed to write DOT:", e.message
 
+{ execSync } = require 'child_process'
+path = require 'path'
+
+ensureSingleInstance = ->
+  try
+    scriptPath = path.resolve(__filename)   # absolute path to this runner
+    # find CoffeeScript processes matching this script
+    out = execSync("ps -Ao pid,command | grep 'coffee' | grep '#{scriptPath}' | grep -v grep || true").toString()
+    lines = out.trim().split("\n").filter (l) -> l.length > 0
+
+    # Filter out our own PID
+    others = lines.filter (l) -> not l.startsWith(process.pid.toString())
+
+    if others.length > 0
+      process.exit(0)
+  catch err
+    console.error "Error checking processes:", err.message
+    # Fail safe: continue
+
 # --------------------------------------
 # Main
 # --------------------------------------
 main = ->
+  ensureSingleInstance()
+
   overridePath = process.env.CFG_OVERRIDE ? process.argv[1] ? 'recipes/full_pipeline.yaml'
   dotOut      = process.env.DOT_OUT ? process.argv[3] ? null
 
@@ -202,6 +223,7 @@ main = ->
   console.log "LOADING OVeRRIDE"
   local = yaml.load fs.readFileSync("override.yaml" , 'utf8')
   console.log "JIM", overridePath,spec || overridePath
+  spec.pipeline.steps = Object.assign {}, spec.pipeline.steps, local?.pipeline?.steps ? {}
   steps = normalizePipeline spec 
   console.log "JIM STEPS", steps
 

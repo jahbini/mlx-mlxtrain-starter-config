@@ -2,6 +2,35 @@
 # Outputs:
 #   eval_out/entropy_tokens.jsonl   (one record per generated token)
 #   eval_out/entropy_summary.csv    (one record per prompt/result)
+"""
+Entropy Meter for Language Model Generations
+--------------------------------------------
+
+This script measures *per-token uncertainty* during generation.
+
+Background:
+- Each step of generation, the model produces log-probabilities over its vocabulary.
+- We convert those to probabilities and compute Shannon entropy:
+      H(p) = -Σ p * log(p)
+- Entropy quantifies the "spread" of the distribution:
+    • Low entropy  → one token dominates (model is confident).
+    • High entropy → distribution is flat (model is uncertain).
+
+Practical interpretation:
+- Tokens like punctuation, common stop words, or highly predictable next words
+  usually have **low entropy** (model is sure).
+- Rare words, unusual continuations, or moments of "waffling"
+  usually have **high entropy**.
+- Spikes in entropy often correspond to branching points where the model
+  could plausibly continue in multiple different directions.
+
+Outputs:
+- `entropy_tokens.jsonl`  : one record per generated token with its entropy.
+- `entropy_summary.csv`   : one record per prompt with mean/median/min/max entropy.
+
+These files let you see *where* the model hesitates vs. where it speaks with confidence,
+and whether certain prompts consistently lead to higher or lower entropy.
+"""
 
 from __future__ import annotations
 import os, json, math, csv, time
@@ -15,8 +44,22 @@ from mlx_lm.generate import stream_generate  # yields (token_id, logprobs, from_
 OUT_DIR = Path("eval_out"); OUT_DIR.mkdir(parents=True, exist_ok=True)
 POLICY_JSON = Path("generation_policy.json")   # step 2.2 output
 PROMPTS_JSON = Path("prompts_eval.json")       # step 2.2 output
-ARTIFACTS = Path("runs/artifacts.json")        # your registry; adjust if needed
+ARTIFACTS = Path("run/artifacts.json")        # your registry; adjust if needed
 
+GEN_JSONL = Path("eval_out/generations.jsonl")
+
+def load_prompts_from_generations():
+    prompts = []
+    with open(GEN_JSONL, "r", encoding="utf-8") as f:
+        for line in f:
+            obj = json.loads(line)
+            if "prompt" in obj:
+                prompts.append(obj["prompt"])
+    return prompts
+
+# replace
+# prompts = load_prompts()
+# with
 MAX_NEW = 128
 STOP_STRS = ["\n\n","==="]   # post-trim sentinels (no fragile kwargs)
 
@@ -32,7 +75,8 @@ def pick_artifact(artifacts_path: Path) -> Tuple[str, Optional[str], str]:
     Choose model_path + adapter_path according to artifact_preference in policy.
     Prefers: quantized > fused > adapter (base+adapter).
     """
-    policy = load_policy()
+    prompts = load_prompts_from_generations()
+    policy = {"prompt_policy": {"name": "plain"}, "artifact_preference": ["quantized","fused","adapter"]}
     pref = policy.get("artifact_preference", ["quantized","fused","adapter"])
 
     data = json.loads(artifacts_path.read_text(encoding="utf-8"))
@@ -105,8 +149,8 @@ def apply_prompt_policy(prompt: str, policy: Dict[str,Any]) -> str:
     return prompt
 
 # ---------- Load model ----------
-policy = load_policy()
-prompts = load_prompts()
+prompts = load_prompts_from_generations()
+policy = {"prompt_policy": {"name": "plain"}, "artifact_preference": ["quantized","fused","adapter"]}
 model_path, adapter_path, artifact_label = pick_artifact(ARTIFACTS)
 model, tok = mlx_load(model_path, adapter_path=adapter_path)
 
@@ -132,21 +176,28 @@ for i, user_prompt in enumerate(prompts):
     entropies: List[float] = []
     token_ids: List[int] = []
 
-    for token_id, logprobs, _from_draft in stream_generate(
+    for step in stream_generate(
         model=model,
         tokenizer=tok,
         prompt=full_prompt,
         max_tokens=MAX_NEW,
     ):
-        piece = tok.decode([token_id])
+        token_id   = step.token
+        piece      = step.text
+        logprobs   = step.logprobs
+        from_draft = step.from_draft
+
         buf += piece
         token_ids.append(token_id)
 
-        # logprobs is typically a dict {token_id: logprob or logits_slice}
-        if isinstance(logprobs, dict) and logprobs:
-            H = entropy_from_logprobs(logprobs)
+        if logprobs is not None:
+            # convert numpy array to dict-like form for entropy calc
+            # take first N entries if you want top-k
+            vals = logprobs.tolist()
+            logprob_dict = {i: v for i, v in enumerate(vals)}
+            H = entropy_from_logprobs(logprob_dict)
             entropies.append(H)
-            # write per-token record
+
             rec = {
                 "artifact": artifact_label,
                 "prompt_idx": i,
@@ -157,7 +208,6 @@ for i, user_prompt in enumerate(prompts):
             }
             toks_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
-        # Optional early break on sentinel (keeps loops in check)
         if any(s in buf for s in STOP_STRS):
             break
 
