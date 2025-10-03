@@ -8,11 +8,13 @@ Scripts must adhere to these constraints to ensure reproducibility, consistency,
 - All filenames, directories, and options must come from default.config or a local override file.
 - No command-line parameters are allowed. Scripts must only read config and environment variables.
 - EXEC (script repo path) and PWD (run working directory) are always available as environment variables.
+- Experimental tasks (e.g., alternate recipes like transformer_lm, bert_mlm) must be activated via override.yaml without requiring changes to EXEC.
 
 2. File Path Resolution
 - All paths must resolve relative to either EXEC or PWD.
 - Inputs/outputs must be explicitly listed in config.
 - Temporary or scratch files must be created under PWD, never /tmp or home directories.
+- Experimental runs must keep outputs isolated under a distinct run/.../experiment_name directory defined in override.yaml.
 
 3. I/O Consistency
 - Inputs: Defined in config (e.g., data_contract.json, train_ready.jsonl).
@@ -22,11 +24,13 @@ Scripts must adhere to these constraints to ensure reproducibility, consistency,
 4. Execution Rules
 - Scripts must be self-contained, non-interactive, and deterministic (same input/config → same output).
 - Scripts must detect if another run is active (PID/lockfile in PWD) and exit cleanly if so.
+- Training paradigms with different objectives (e.g., MLM vs causal LM) must define task name in config (task: value) to avoid ambiguity.
 
 5. Integration with the Pipeline
 - Scripts must define a clear entry point (main function) with no side effects on import.
 - All required upstream files must be validated before execution; missing files must cause exit with error.
 - Outputs must be declared and traceable in config, not inferred by scanning directories.
+- Unknown task values in config must trigger a clear error rather than fallback defaults.
 
 6. Error Handling
 - Scripts must fail fast: missing/invalid inputs must log an error and exit with non-zero code.
@@ -46,6 +50,7 @@ Scripts must adhere to these constraints to ensure reproducibility, consistency,
 - Exit cleanly on errors.
 - Update pipeline runner to include script in correct order.
 - Test with both default.config and override.yaml.
+- For experimental tasks, verify isolation (outputs under unique run dir) and correct task labeling in override.yaml.
 
 ---
 This spec ensures that all scripts are reproducible, config-driven, and portable within the pipeline system.
