@@ -243,6 +243,10 @@ main = ->
         runPythonScript(name, process.env.EXEC + "/" + def.run, { CFG_OVERRIDE: overridePath })
           .then ->
             M.saveThis "done:#{name}", true
+          .catch (err) ->
+            console.error "! #{name}: step failed, continuing"
+            console.error err.stack or err
+            M.saveThis "done:#{name}", false
 
       if def.depends_on.length is 0
         console.log "▶️ starting root step #{name}"

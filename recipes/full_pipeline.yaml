@@ -49,7 +49,7 @@ pipeline:
 
     sanity:
       run: scripts/042_sanity.py
-      depends_on: [metrics]
+      depends_on: [metrics,fuse]
 
     snapshot:
       run: scripts/04_snapshot.py
@@ -61,7 +61,7 @@ pipeline:
 
     entropy:
       run: scripts/115_entropy.py
-      depends_on: [snapshot]
+      depends_on: [fuse,eval,snapshot]
 
     prepare_outmd:
       run: scripts/80_prepare_outmd.py
