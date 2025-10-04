@@ -1,6 +1,7 @@
 from __future__ import annotations
 import sys, os, json, argparse
 from copy import deepcopy
+from pathlib import Path
 
 try:
     from dotenv import load_dotenv
@@ -80,6 +81,28 @@ def _env_overrides(prefix: str = "CFG_") -> dict:
 
 
 # --- Main loader ---
+def load_config(env_prefix: str = "CFG_") -> Config:
+    """
+    Smart config loader.
+
+    Precedence (lowest → highest):
+      config/default.yaml < override.yaml < env(CFG_*) < CFG_OVERRIDE < experiment.yaml
+
+    Always returns a Config object (dot-accessible).
+    """
+    exp_path = Path("experiment.yaml")
+    if exp_path.exists():
+        return Config(_load_yaml(str(exp_path)))
+
+    override_path = os.environ.get("CFG_OVERRIDE")
+    if override_path and Path(override_path).exists():
+        return Config(_load_yaml(override_path))
+
+    default_path = Path(__file__).parent / "config" / "default.yaml"
+    cfg = _load_yaml(str(default_path))
+    _deep_update(cfg, _load_yaml("./override.yaml"))
+    _deep_update(cfg, _env_overrides(env_prefix))
+    return Config(cfg)
 def xload_config(
     default_path: str = "config/default.yaml",
     local_path: str = "./override.yaml",
@@ -98,10 +121,24 @@ def xload_config(
         _deep_update(cfg, cli_overrides)
 
     return Config(cfg)
+def zload_config():
+    exp_path = Path("experiment.yaml")
+    if exp_path.exists():
+        with open(exp_path, "r") as f:
+            return yaml.safe_load(f)
 
+    # Priority: experiment.yaml -> CFG_OVERRIDE → experiment.yaml in PWD → config/default.yaml
+    override_path = os.environ.get("CFG_OVERRIDE")
+    if override_path and Path(override_path).exists():
+        with open(override_path, "r") as f:
+            return yaml.safe_load(f)
+
+    default_path = Path(__file__).parent / "config" / "default.yaml"
+    with open(default_path, "r") as f:
+        return yaml.safe_load(f)
 import os
 # --- Main loader ---
-def load_config(
+def yload_config(
     default_path: str = os.environ["EXEC"]+ "/config/default.yaml",
     local_path: str = None,
     cli_overrides: dict | None = None,

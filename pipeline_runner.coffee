@@ -1,27 +1,27 @@
 ###
-    pipeline_runner.coffee
-    A lightweight Petri‑net/DAG recipe runner using your Memo kernel.
-    - Reads a YAML recipe (override) with `pipeline.steps`
-    - Each step has: run: <script.py>, depends_on: [ ... ]
-    - Spawns `python <script.py>` with CFG_OVERRIDE env set to the recipe file
-    - Parallelizes independent steps; waits for terminal steps to finish
-    - Emits optional Graphviz DOT if DOT_OUT env/arg is set
-    Usage:
-      coffee pipeline_runner.coffee [recipes/full_pipeline.yaml] [dot_out.dot]
+  pipeline_runner.coffee
+  A lightweight Petri-net/DAG recipe runner using your Memo kernel.
+
+  Changes:
+  - Pre-flatten config into PWD/experiment.yaml (base recipe + sub-recipes + override.yaml).
+  - DEBUG mode: per-step behavior.
+      * If any declared input is missing → log paths and EXIT immediately.
+      * If all inputs exist → touch/create declared outputs, mark step done, DO NOT run the script.
 ###
 
-fs       = require 'fs'
-path     = require 'path'
-yaml     = require 'js-yaml'
-{ spawn }= require 'child_process'
+fs        = require 'fs'
+path      = require 'path'
+yaml      = require 'js-yaml'
+{ spawn } = require 'child_process'
+{ execSync } = require 'child_process'
 
 # --------------------------------------
-# Memo kernel (kept close to your version)
+# Memo kernel (kept consistent with your version)
 # --------------------------------------
 class Memo
   constructor: (@evaluator) ->
     @MM = {}
-    @regexListeners = []  # Store listeners for regex matches
+    @regexListeners = []
 
   memoLog: (key) ->
     console.log "Snapping #{key}", @MM[key]
@@ -29,10 +29,9 @@ class Memo
   saveThis: (key, value) ->
     return @MM[key] if @MM[key]? and value == @MM[key].value
 
-    console.log "saving key,value",key,value
+    console.log "saving key,value", key, value
     oldResolver = @MM[key]?.resolver ? null
     breaker = null
-
     maybe = new Promise (resolve, reject) ->
       breaker = resolve
 
@@ -41,10 +40,9 @@ class Memo
       notifier: maybe
       resolver: breaker
 
-    oldResolver value if oldResolver  # Notify subscribers of the new cache value
+    oldResolver value if oldResolver
     maybe.then (newvalue) => @MM[key].value = newvalue
 
-    # Check regex listeners for any match on the new key
     for listener in @regexListeners
       if listener.regex.test(key)
         listener.callback(key, value)
@@ -59,7 +57,6 @@ class Memo
     dependants = for key in aList
       d = @theLowdown key
       d.notifier
-    # Wait for ALL deps to settle before andDo
     Promise.all(dependants).then andDo
 
   notifyMe: (n, andDo) ->
@@ -70,7 +67,6 @@ class Memo
       while currentValue == newValue
         newValue = (await @MM[n].notifier).value
 
-  # Wait for regex matches on existing and future keys
   waitForRegex: (regex, callback) ->
     matched = []
     for key, memoObj of @MM
@@ -86,10 +82,25 @@ class Memo
 banner = (msg) -> console.log "\n=== #{msg} ==="
 prefixLines = (pfx, s) -> (s ? '').split(/\r?\n/).map((l)-> (pfx + l)).join("\n")
 
+# Deep merge (for config flattening)
+isPlainObject = (o) -> Object.prototype.toString.call(o) is '[object Object]'
+deepMerge = (target, source) ->
+  return target unless source?
+  for own k, v of source
+    if isPlainObject(v) and isPlainObject(target[k])
+      target[k] = deepMerge Object.assign({}, target[k]), v
+    else
+      target[k] = v
+  target
+
+# --------------------------------------
 # Petri/DAG execution
+# --------------------------------------
 M = new Memo()
 
+# --------------------------------------
 # Spawn a python script, prefixing logs with the step name
+# --------------------------------------
 runPythonScript = (stepName, scriptPath, envOverrides={}) ->
   new Promise (resolve, reject) ->
     console.log "▶️  #{stepName}: running #{scriptPath}"
@@ -112,33 +123,39 @@ runPythonScript = (stepName, scriptPath, envOverrides={}) ->
         console.error "! #{stepName}: #{err.message}"
         reject err
 
+# --------------------------------------
 # Validate and normalize the pipeline spec
+# --------------------------------------
 normalizePipeline = (spec = {"pipeline":[]}  ) ->
-  console.log "Pipeline", spec
-  steps = spec.pipeline.steps
+  steps = spec.pipeline?.steps
+  unless steps?
+    throw new Error "Spec missing pipeline.steps"
+
   # prune steps with depends_on: [never]
   for own name, def of steps
     if def.depends_on? and def.depends_on.length is 1 and def.depends_on[0] is "never"
       console.log "⏭️ removing step #{name} (depends_on: never)"
       delete steps[name]
 
-  # steps can be a mapping {name: {run, depends_on}} or an array of names (legacy)
   if Array.isArray(steps)
     obj = {}
     for name in steps
       obj[name] = { run: null, depends_on: [] }
     steps = obj
 
-  # fill defaults, validate fields
   for own name, def of steps
     unless def?.run?
       throw new Error "Step '#{name}' missing 'run:' script path"
     def.depends_on ?= []
     unless Array.isArray(def.depends_on)
       throw new Error "Step '#{name}'.depends_on must be an array"
+    # inputs/outputs are optional; leave as-is so DEBUG can use them
+
   steps
 
-# Detect cycles using Kahn's algorithm; return topological order (names array)
+# --------------------------------------
+# Detect cycles using Kahn's algorithm; return topological order
+# --------------------------------------
 toposort = (steps) ->
   indeg = {}
   graph = {}
@@ -162,7 +179,9 @@ toposort = (steps) ->
     throw new Error "Cycle detected in pipeline graph"
   order
 
+# --------------------------------------
 # Compute terminal steps (no one depends on them)
+# --------------------------------------
 terminalSteps = (steps) ->
   dependents = new Set()
   for own name, def of steps
@@ -170,7 +189,9 @@ terminalSteps = (steps) ->
       dependents.add dep
   (n for own n, _ of steps when not dependents.has(n))
 
+# --------------------------------------
 # Optional: emit Graphviz DOT
+# --------------------------------------
 emitDot = (steps, outPath) ->
   try
     lines = ['digraph pipeline {', '  rankdir=LR;']
@@ -185,24 +206,101 @@ emitDot = (steps, outPath) ->
   catch e
     console.error "Failed to write DOT:", e.message
 
-{ execSync } = require 'child_process'
-path = require 'path'
-
+# --------------------------------------
+# Single-instance guard
+# --------------------------------------
 ensureSingleInstance = ->
   try
-    scriptPath = path.resolve(__filename)   # absolute path to this runner
-    # find CoffeeScript processes matching this script
+    scriptPath = path.resolve(__filename)
     out = execSync("ps -Ao pid,command | grep 'coffee' | grep '#{scriptPath}' | grep -v grep || true").toString()
     lines = out.trim().split("\n").filter (l) -> l.length > 0
-
-    # Filter out our own PID
     others = lines.filter (l) -> not l.startsWith(process.pid.toString())
-
     if others.length > 0
       process.exit(0)
   catch err
     console.error "Error checking processes:", err.message
-    # Fail safe: continue
+
+# --------------------------------------
+# Pre-flatten into experiment.yaml (base + sub-recipes + override)
+# --------------------------------------
+loadYamlSafe = (p) ->
+  return {} unless p? and fs.existsSync(p)
+  yaml.load fs.readFileSync(p, 'utf8') or {}
+
+expandIncludes = (spec, baseDir) ->
+  incs = spec.include
+  return spec unless incs? and Array.isArray(incs) and incs.length > 0
+  merged = JSON.parse(JSON.stringify(spec))
+  for inc in incs
+    incPath = path.isAbsolute(inc) and inc or path.join(baseDir, inc)
+    sub = loadYamlSafe(incPath)
+    merged = deepMerge merged, sub
+  merged
+
+createExperimentYaml = (basePath, overridePath) ->
+  banner "🔧 Creating experiment.yaml"
+  baseAbs = path.resolve(basePath)
+  baseDir = path.dirname(baseAbs)
+
+# Always merge defaults → base → override
+  defaults = loadYamlSafe("config/default.yaml")
+  base     = loadYamlSafe(baseAbs)
+  base     = expandIncludes(base, baseDir)
+  override = loadYamlSafe(overridePath)
+
+  merged = deepMerge(JSON.parse(JSON.stringify(defaults)), base)
+  merged = deepMerge(merged, override)
+
+  expPath = path.join(process.cwd(), "experiment.yaml")
+  fs.writeFileSync(expPath, yaml.dump(merged), "utf8")
+  console.log "✅ Wrote experiment.yaml:", expPath
+  expPath
+
+# --------------------------------------
+# Per-step DEBUG behavior
+# --------------------------------------
+DEBUG_TOUCH_DIR = (p) ->
+  try
+    fs.mkdirSync(p, {recursive:true})
+    true
+  catch e
+    console.error "! DEBUG mkdir failed:", p, e.message
+    false
+
+DEBUG_TOUCH_FILE = (p) ->
+  try
+    dir = path.dirname(p)
+    fs.mkdirSync(dir, {recursive:true})
+    fd = fs.openSync(p, 'a')
+    fs.closeSync(fd)
+    true
+  catch e
+    console.error "! DEBUG touch failed:", p, e.message
+    false
+
+debugHandleStep = (stepName, def) ->
+  ins  = def.inputs or []
+  outs = def.outputs or []
+
+  missing = (f for f in ins when not fs.existsSync(f))
+  if missing.length > 0
+    console.error "🐞 DEBUG: missing inputs for step '#{stepName}':"
+    for f in missing
+      console.error "   - #{f}"
+    console.error "Exiting due to DEBUG missing inputs."
+    process.exit(0)
+
+  # All inputs exist → touch outputs and mark as done
+  for f in outs
+    # treat trailing slash as directory; otherwise create file
+    if /[\/\\]$/.test(f)
+      DEBUG_TOUCH_DIR(f)
+    else
+      # crude heuristic: if it has an extension, treat as file; else still create dir if ends with '/'
+      if path.extname(f) then DEBUG_TOUCH_FILE(f) else DEBUG_TOUCH_DIR(f)
+
+  console.log "🐞 DEBUG: step '#{stepName}' outputs touched; skipping script."
+  M.saveThis "done:#{stepName}", true
 
 # --------------------------------------
 # Main
@@ -210,37 +308,37 @@ ensureSingleInstance = ->
 main = ->
   ensureSingleInstance()
 
-  overridePath = process.env.CFG_OVERRIDE ? process.argv[1] ? 'recipes/full_pipeline.yaml'
-  dotOut      = process.env.DOT_OUT ? process.argv[3] ? null
+  baseRecipe = process.argv[2] ? 'recipes/full_pipeline.yaml'
+  dotOut     = process.env.DOT_OUT ? process.argv[3] ? null
+  DEBUG      = !!(process.env.DEBUG? and String(process.env.DEBUG).toLowerCase() in ['1','true','yes'])
 
-  console.log "CWD is", process.cwd()
-  console.log "JIM main yaml",process.argv[2]
-  console.log "JIM cfg EXEC",process.env.EXEC
-  console.log "JIM cfg override",process.env.CFG_OVERRIDE
-  banner "Recipe: #{overridePath}"
-  console.log "LOADING DEFAULT"
-  spec = yaml.load fs.readFileSync( process.argv[2], 'utf8')
-  console.log "LOADING OVeRRIDE"
-  local = yaml.load fs.readFileSync("override.yaml" , 'utf8')
-  console.log "JIM", overridePath,spec || overridePath
-  spec.pipeline.steps = Object.assign {}, spec.pipeline.steps, local?.pipeline?.steps ? {}
-  steps = normalizePipeline spec 
-  console.log "JIM STEPS", steps
+  console.log "CWD:", process.cwd()
+  banner "Recipe (base): #{baseRecipe}"
 
+  # Pre-flatten experiment config
+  overridePath = path.join(process.cwd(), 'override.yaml')
+  expPath = createExperimentYaml(baseRecipe, overridePath)
+
+  # Load flattened spec
+  spec = loadYamlSafe(expPath)
+
+  steps = normalizePipeline spec
   order = toposort steps
   console.log "Topo order:", order.join(" → ")
-
   if dotOut? then emitDot steps, dotOut
-
 
   M.waitForRegex /^done:/, (k,v) ->
     console.log "DEBUG done-signal:", k
 
-  # For each step, set up its firing rule
+  # Set up step firing rules
   for own name, def of steps
     do (name, def) ->
       fire = ->
-        runPythonScript(name, process.env.EXEC + "/" + def.run, { CFG_OVERRIDE: overridePath })
+        if DEBUG
+          # Per-step DEBUG: check inputs; if ok, touch outputs; do not spawn
+          return debugHandleStep(name, def)
+
+        runPythonScript(name, process.env.EXEC + "/" + def.run, { CFG_OVERRIDE: expPath, STEP_NAME: name })
           .then ->
             M.saveThis "done:#{name}", true
           .catch (err) ->
@@ -255,7 +353,7 @@ main = ->
         console.log "⏳ waiting for deps of #{name}: #{def.depends_on.join ', '}"
         M.waitFor (def.depends_on.map (d) -> "done:#{d}"), ->
           fire()
-  # Wait for all terminal steps to complete
+
   finals = terminalSteps steps
   Promise.all( finals.map((s)-> M.theLowdown(s).notifier) ).then ->
     banner "🌟 Pipeline finished (final steps: #{finals.join(', ')})"

@@ -4,24 +4,32 @@
 # - Sets deterministic seeds (random, numpy; PYTHONHASHSEED)
 # - Writes manifest to run_manifest.yaml (falls back to JSON if PyYAML missing)
 
-import os, sys, platform, subprocess, json, time, hashlib, shlex
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+# STEP 1 — Run Manifest & Environment (Apple Silicon / MLX)
 
+import os, sys, platform, subprocess, json, time, hashlib, shlex
 from pathlib import Path
+
+# Import config loader
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
+CFG = load_config()
 
-# ---------- Configuration (edit as needed) ----------
-CFG = load_config()  # pulls default.yaml, then local.yaml, then CFG_* env, then (optionally) pass a dict of overrides
-OUT_DIR = Path(CFG.run.output_dir)                  # where to write outputs
-LOCKFILE = OUT_DIR / "requirements.lock"
+# Runner injects this
+STEP_NAME = os.environ["STEP_NAME"]
+STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
+
+OUT_DIR       = Path(CFG.run.output_dir)
+LOCKFILE      = OUT_DIR / "requirements.lock"
 MANIFEST_YAML = OUT_DIR / "run_manifest.yaml"
 MANIFEST_JSON = OUT_DIR / "run_manifest.json"
-SEED = CFG.run.seed
-ARTIFACTS = CFG.data.artifacts
+SEED          = CFG.run.seed
+ARTIFACTS     = CFG.data.artifacts
+# ---------- Configuration ----------
+# Allow step-specific overrides in future
+#PARAMS = STEP_CFG.get("params", {})
 # ----------------------------------------------------
 
-# 1) Set seeds for determinism (Python & NumPy)
+# 1) Set seeds for determinism
 import random
 random.seed(SEED)
 os.environ["PYTHONHASHSEED"] = str(SEED)
@@ -31,6 +39,8 @@ try:
     numpy_ver = np.__version__
 except Exception:
     numpy_ver = None
+
+# … rest of your code unchanged …
 
 # 2) Collect environment info
 def _safe_import_version(pkg_name):
