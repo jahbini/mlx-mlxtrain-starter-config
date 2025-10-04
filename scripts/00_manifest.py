@@ -12,10 +12,16 @@ from pathlib import Path
 # Import config loader
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
+import os, sys
+from pathlib import Path
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config_loader import load_config
+
 CFG = load_config()
+STEP_NAME = os.environ["STEP_NAME"]
+STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
 
 # Runner injects this
-STEP_NAME = os.environ["STEP_NAME"]
 STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
 
 OUT_DIR       = Path(CFG.run.output_dir)

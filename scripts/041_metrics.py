@@ -1,24 +1,34 @@
-# STEP 11 — EOS Behavior Probe & Quick Analysis (revised, JSONL-first)
-# Reads eval_out/generations.jsonl to avoid NaN coercion, computes the same stats,
+# scripts/11_eos_analysis.py
+# STEP 11 — EOS Behavior Probe & Quick Analysis (JSONL-first)
+# Reads eval_out/generations.jsonl to avoid NaN coercion, computes stats,
 # and shows any rows that CSV parsing would have treated as NaN.
 
 from __future__ import annotations
 import os, sys, json, re, statistics, pandas as pd
 from pathlib import Path
+
+# --- Config loader ---
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
-cfg = load_config()
-OUT_DIR       = Path(cfg.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
-EVAL_DIR      = Path(cfg.eval.output_dir); EVAL_DIR.mkdir(exist_ok=True)
-RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-#ARTIFACTS     = RUN_DIR / cfg.run.artifacts
-CONTRACT      = OUT_DIR / cfg.data.contract
-GEN_JSONL     = EVAL_DIR / (cfg.eval.generations + ".jsonl" )
-GEN_CSV       = EVAL_DIR / (cfg.eval.generations + ".csv")
-OUT_SUM       = EVAL_DIR / (cfg.eval.summary + ".csv")
-OUT_JSON      = EVAL_DIR / (cfg.eval.analysis + ".json")
 
+# --- STEP-AWARE CONFIG ---
+CFG = load_config()
+STEP_NAME = os.environ["STEP_NAME"]
+STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
+PARAMS    = getattr(STEP_CFG, "params", {})
 
+# Resolve paths (params > global cfg)
+OUT_DIR   = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)); OUT_DIR.mkdir(exist_ok=True)
+EVAL_DIR  = Path(getattr(PARAMS, "eval_output_dir", CFG.eval.output_dir)); EVAL_DIR.mkdir(exist_ok=True)
+RUN_DIR   = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
+
+CONTRACT  = OUT_DIR / getattr(PARAMS, "contract", CFG.data.contract)
+GEN_JSONL = EVAL_DIR / (getattr(PARAMS, "generations", CFG.eval.generations) + ".jsonl")
+GEN_CSV   = EVAL_DIR / (getattr(PARAMS, "generations", CFG.eval.generations) + ".csv")
+OUT_SUM   = EVAL_DIR / (getattr(PARAMS, "summary", CFG.eval.summary) + ".csv")
+OUT_JSON  = EVAL_DIR / (getattr(PARAMS, "analysis", CFG.eval.analysis) + ".json")
+
+# --- Safety checks ---
 if not GEN_JSONL.exists():
     raise SystemExit("Missing eval_out/generations.jsonl (run Step 10).")
 if not CONTRACT.exists():
@@ -32,12 +42,10 @@ with GEN_JSONL.open("r", encoding="utf-8") as f:
             rows.append(json.loads(line))
 df = pd.DataFrame(rows)
 
-# ---- (Optional) CSV diagnostics: which rows would be NaN? ----
+# ---- (Optional) CSV diagnostics ----
 csv_missing = pd.DataFrame()
 if GEN_CSV.exists():
     df_csv = pd.read_csv(GEN_CSV, keep_default_na=False, na_filter=False)
-    # If your earlier CSV had blank cells, reading with default settings would coerce to NaN.
-    # keep_default_na=False prevents that. We diff the two to surface any mismatches.
     if len(df_csv) != len(df):
         csv_missing = pd.concat([df, df_csv]).drop_duplicates(keep=False)
 
@@ -50,16 +58,19 @@ def distinct_n(tokens, n=1):
     ngrams = set(tuple(tokens[i:i+n]) for i in range(len(tokens)-n+1))
     return len(ngrams) / max(1, (len(tokens)-n+1))
 
-# Load training examples for simple memorization checks
+# ----- Load training examples for memorization checks -----
 c = json.loads(CONTRACT.read_text(encoding="utf-8"))
 train_path = Path(c["filenames"]["train"]["resolved"])
 text_field = next((k for k,v in c["schema"]["fields"].items() if str(v).lower()=="string"), "text")
+
 train_texts = []
 with train_path.open("r", encoding="utf-8") as f:
     for line in f:
         try:
-            obj = json.loads(line); t = obj.get(text_field, "")
-            if isinstance(t, str): train_texts.append(t.strip())
+            obj = json.loads(line)
+            t = obj.get(text_field, "")
+            if isinstance(t, str):
+                train_texts.append(t.strip())
         except Exception:
             pass
 train_blob = "\n\n".join(train_texts)
@@ -102,7 +113,8 @@ agg = (m.groupby("mode")
            )
          .reset_index())
 
-for col in ["avg_len_chars","med_len_chars","avg_len_words","sent_end_rate","trailing_ws_rate","distinct1_mean","distinct2_mean","mem_exact_rate","mem_sub_rate"]:
+for col in ["avg_len_chars","med_len_chars","avg_len_words","sent_end_rate","trailing_ws_rate",
+            "distinct1_mean","distinct2_mean","mem_exact_rate","mem_sub_rate"]:
     if col in agg.columns:
         agg[col] = agg[col].map(lambda x: round(float(x), 4))
 
@@ -114,6 +126,7 @@ def sample_table(df_in: pd.DataFrame, n=1):
             for _, rr in gg.head(n).iterrows():
                 out_rows.append({"prompt": prompt, "mode": mode, "generation": rr["generation"]})
     return pd.DataFrame(out_rows)
+
 preview = sample_table(m, n=1)
 
 # ----- Save outputs -----
@@ -141,6 +154,6 @@ for _, row in preview.iterrows():
 
 if not csv_missing.empty:
     print("\n[CSV diagnostic] These rows mismatch when parsing CSV with defaults; JSONL kept them:")
-    display(csv_missing[["mode","prompt","generation"]].head(6))
+    print(csv_missing[["mode","prompt","generation"]].head(6))
 
 print(f"\nWrote: {OUT_SUM} and {OUT_JSON}")

@@ -1,37 +1,32 @@
-from __future__ import annotations
-from pathlib import Path
-import sys, os
-from datasets import load_from_disk
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from config_loader import load_config
-# STEP 7 (PATCH) — MLX LoRA command fix for 0.26.x
-# - Switch to `python -m mlx_lm lora` subcommand form
-# - Remove unsupported flags: --gradient-accumulation, --log-dir, --bf16
-# - Keep your computed `iters`, batch size, lr, max-seq-length
-# - Optional: add reporting/eval knobs that lora *does* support
+# scripts/03_train.py  (LoRA training patch for MLX 0.26.x)
 
-import csv, shlex, subprocess, sys
+from __future__ import annotations
+import sys, os, csv, shlex, subprocess
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-cfg = load_config()
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config_loader import load_config
 
-out_dir = Path(cfg.data.output_dir ); out_dir.mkdir(exist_ok=True)
+# --- STEP-AWARE CONFIG ---
+CFG = load_config()
+STEP_NAME = os.environ["STEP_NAME"]
+STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
+PARAMS    = getattr(STEP_CFG, "params", {})
 
+# Resolve from params > global config
+OUT_DIR = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)); OUT_DIR.mkdir(exist_ok=True)
+RUN_DIR = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
+EXPERIMENTS_CSV = RUN_DIR / getattr(PARAMS, "experiments_csv", CFG.data.experiments_csv)
 
-RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-EXPERIMENTS_CSV = RUN_DIR / cfg.data.experiments_csv      # monkey
-
-
-# ---- Controls ----
-DRY_RUN = False
-ONLY_MODEL_ID = ""              # or set to a specific model_id string
-ONLY_ROW = None                 # or an integer index
-# Optional lora reporting/eval settings (set to 0 to skip passing)
-STEPS_PER_REPORT = 1000
-STEPS_PER_EVAL   = 5000
-VAL_BATCHES      = 1
-# ------------------
+# ---- Controls (can be overridden by step.params) ----
+DRY_RUN          = PARAMS.get("dry_run", False)
+ONLY_MODEL_ID    = PARAMS.get("only_model_id", "")
+ONLY_ROW         = PARAMS.get("only_row", None)
+STEPS_PER_REPORT = PARAMS.get("steps_per_report", 1000)
+STEPS_PER_EVAL   = PARAMS.get("steps_per_eval", 5000)
+VAL_BATCHES      = PARAMS.get("val_batches", 1)
+# ------------------------------------------------------
 
 def load_rows(path: Path) -> List[Dict[str, Any]]:
     with path.open("r", encoding="utf-8") as f:
@@ -67,7 +62,7 @@ def build_cmd(row: Dict[str, Any]) -> str:
     lr = float(row["learning_rate"])
     adapter = shlex.quote(row["adapter_path"])
 
-    # NOTE: no --gradient-accumulation / --bf16 / --log-dir
+    # NOTE: MLX lora subcommand (no grad-accum, bf16, log-dir)
     parts = [
         f"{py} -m mlx_lm lora",
         f"--model {model}",
@@ -79,14 +74,12 @@ def build_cmd(row: Dict[str, Any]) -> str:
         f"--learning-rate {lr}",
         f"--max-seq-length {maxlen}",
         f"--adapter-path {adapter}",
-        f"--num-layers -1",
+        "--num-layers -1",
     ]
     if VAL_BATCHES:      parts += [f"--val-batches {int(VAL_BATCHES)}"]
     if STEPS_PER_REPORT: parts += [f"--steps-per-report {int(STEPS_PER_REPORT)}"]
     if STEPS_PER_EVAL:   parts += [f"--steps-per-eval {int(STEPS_PER_EVAL)}"]
     return " ".join(parts)
-
-import subprocess
 
 def run_cmd(cmd: str, log_path: str = "run/lora_last.log") -> int:
     print("\n[MLX train]", cmd)
@@ -110,6 +103,7 @@ def run_cmd(cmd: str, log_path: str = "run/lora_last.log") -> int:
         print(f"✅ Training completed. Log: {log_path}")
     return process.returncode
 
+# --- MAIN ---
 rows = load_rows(EXPERIMENTS_CSV)
 todo = select_rows(rows, ONLY_MODEL_ID, ONLY_ROW)
 

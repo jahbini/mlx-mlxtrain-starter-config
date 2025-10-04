@@ -1,25 +1,28 @@
+# scripts/031_register.py
 from __future__ import annotations
+import sys, os, json, hashlib, time, csv
 from pathlib import Path
-import sys, json, hashlib, os, time
-from datasets import load_from_disk
 from typing import Dict, Any, List
-import csv
 
+# --- Config loader ---
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
-cfg = load_config()
 
-# STEP 8 — Artifact Registry
-# Reads experiments.csv and registers produced artifacts (adapters, logs, fused, quantized).
-# - Computes SHA256 & sizes
-# - Writes artifacts.json
-# - Creates per-model symlinks: latest_adapter -> adapter , latest_logs -> logs
+# --- STEP-AWARE CONFIG ---
+CFG = load_config()
+STEP_NAME = os.environ["STEP_NAME"]
+STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
+PARAMS    = getattr(STEP_CFG, "params", {})
 
-out_dir = Path(cfg.data.output_dir); out_dir.mkdir(exist_ok=True)
-RUN_DIR = Path(cfg.run.output_dir)
-EXPERIMENTS_CSV = RUN_DIR / cfg.data.experiments_csv
-ARTIFACTS = RUN_DIR / cfg.data.artifacts
+# Resolve paths (params > global cfg)
+OUT_DIR  = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)); OUT_DIR.mkdir(exist_ok=True)
+RUN_DIR  = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
+EXPERIMENTS_CSV = RUN_DIR / getattr(PARAMS, "experiments_csv", CFG.data.experiments_csv)
+ARTIFACTS = RUN_DIR / getattr(PARAMS, "artifacts", CFG.data.artifacts)
 
+# --------------------------
+# Utilities
+# --------------------------
 def sha256_file(p: Path) -> str:
     h = hashlib.sha256()
     with p.open("rb") as f:
@@ -38,16 +41,21 @@ def gather_dir_files(root: Path) -> List[Dict[str, Any]]:
                 "rel": str(p.relative_to(root)),
                 "bytes": p.stat().st_size,
                 "sha256": sha256_file(p),
-                "mtime_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(p.stat().st_mtime)),
+                "mtime_utc": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ",
+                    time.gmtime(p.stat().st_mtime)
+                ),
             })
     return out
 
-def load_rows(path: Path):
+def load_rows(path: Path) -> List[Dict[str, Any]]:
     with path.open("r", encoding="utf-8") as f:
         r = csv.DictReader(f)
-        rows = [dict(x) for x in r]
-    return rows
+        return [dict(x) for x in r]
 
+# --------------------------
+# Main
+# --------------------------
 if not EXPERIMENTS_CSV.exists():
     raise SystemExit("experiments.csv not found (run Step 6).")
 
@@ -58,13 +66,13 @@ registry: Dict[str, Any] = {
 }
 
 for r in rows:
-    model_id = r["model_id"]
-    model_tag = model_id.replace("/", "--")
-    out_root = RUN_DIR / model_tag
+    model_id   = r["model_id"]
+    model_tag  = model_id.replace("/", "--")
+    out_root   = RUN_DIR / model_tag
     adapter_dir = Path(r["adapter_path"])
     logs_dir    = Path(r["log_dir"])
 
-    fused_dir = out_root / "fused" / "model"
+    fused_dir     = out_root / "fused" / "model"
     quantized_dir = out_root / "quantized" / "model"
     fused_dir.parent.mkdir(parents=True, exist_ok=True)
     quantized_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -73,11 +81,13 @@ for r in rows:
     try:
         (out_root / "latest_adapter").unlink(missing_ok=True)
         (out_root / "latest_adapter").symlink_to(adapter_dir.name)
-    except Exception: pass
+    except Exception:
+        pass
     try:
         (out_root / "latest_logs").unlink(missing_ok=True)
         (out_root / "latest_logs").symlink_to(logs_dir.name)
-    except Exception: pass
+    except Exception:
+        pass
 
     entry = {
         "model_id": model_id,

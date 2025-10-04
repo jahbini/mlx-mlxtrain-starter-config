@@ -9,7 +9,14 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
 from mlx_lm import load as mlx_load, generate as mlx_generate
 
-cfg = load_config()
+import os, sys
+from pathlib import Path
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config_loader import load_config
+
+CFG = load_config()
+STEP_NAME = os.environ["STEP_NAME"]
+STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
 
 # --- Config ---
 EXPERIMENTS_CSV = Path(cfg.run.output_dir) / cfg.data.experiments_csv

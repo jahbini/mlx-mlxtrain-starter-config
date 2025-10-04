@@ -1,13 +1,14 @@
-### 
+#!/usr/bin/env coffee
+###
 Template Script for Pipeline Integration
 ----------------------------------------
 
-Use this template when creating a new script for the pipeline.  
-All parameters and paths must come from config (default + override).  
+Use this template when creating a new script for the pipeline.
+All parameters and paths must come from config (default + override).
 No command-line arguments are allowed.
 
 Inputs:
-  - Defined in config (cfg.data.*, cfg.run.*, etc.)
+  - Defined in config (CFG.data.*, CFG.run.*, etc.)
 Outputs:
   - Defined in config and written into PWD (never EXEC)
 Logs:
@@ -23,16 +24,19 @@ path = require 'path'
 
 # --- 1) Load Config ---
 {load_config} = require '../config_loader'
-cfg = load_config()
+
+CFG       = load_config()
+STEP_NAME = process.env.STEP_NAME or "999_template"
+STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
 
 # Directories
-outDir  = path.resolve cfg.data.output_dir
-logDir  = path.join outDir, 'logs'
+outDir = path.resolve CFG.data.output_dir
+logDir = path.join outDir, 'logs'
 fs.mkdirSync outDir, {recursive: true}
 fs.mkdirSync logDir, {recursive: true}
 
 # Example input/output files from config
-INPUT_FILE  = path.join outDir, cfg.data.contract     # replace with correct key
+INPUT_FILE  = path.join outDir, CFG.data.contract     # replace with correct key
 OUTPUT_FILE = path.join outDir, 'example_output.json' # replace with correct key
 
 # --- 2) Logging Helper ---
@@ -47,16 +51,16 @@ unless fs.existsSync INPUT_FILE
   process.exit 1
 
 log "[INFO] Starting template script"
-log "[INFO] Using config keys from: #{JSON.stringify cfg}"
+log "[INFO] Using config keys from: #{JSON.stringify CFG}"
 
 # --- 4) Core Work (replace with real logic) ---
 processContract = (p) ->
   try
-    raw = fs.readFileSync p, 'utf8'
+    raw  = fs.readFileSync p, 'utf8'
     data = JSON.parse raw
     result =
       summary: "Contract contains #{Object.keys(data.filenames or {}).length} files"
-      git_commit: cfg.run?.git_commit or 'unknown'
+      git_commit: CFG.run?.git_commit or 'unknown'
     return result
   catch err
     log "[FATAL] Error processing contract: #{err}"

@@ -6,7 +6,14 @@ from urllib.parse import urlparse
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
-cfg = load_config()
+import os, sys
+from pathlib import Path
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config_loader import load_config
+
+CFG = load_config()
+STEP_NAME = os.environ["STEP_NAME"]
+STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
 
 # ---- CONTEXT: Adapted from crawl_for_voice.py to work with a local .md file instead of HTML crawl ----
 

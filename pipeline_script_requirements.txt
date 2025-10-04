@@ -2,6 +2,8 @@
 
 This document defines the rules and requirements for integrating new scripts into the build pipeline.
 Scripts must adhere to these constraints to ensure reproducibility, consistency, and configurability.
+These directives apply especially to AI-generated code and must always be considered part of the context
+when creating or updating scripts.
 
 1. Configuration-Driven Execution
 - No hardcoded parameters.
@@ -23,7 +25,7 @@ Scripts must adhere to these constraints to ensure reproducibility, consistency,
 
 4. Execution Rules
 - Scripts must be self-contained, non-interactive, and deterministic (same input/config → same output).
-- Scripts must detect if another run is active (PID/lockfile in PWD) and exit cleanly if so.
+- Scripts must not implement or check lockfiles. Concurrency and active-run checks are the sole responsibility of the pipeline runner.
 - Training paradigms with different objectives (e.g., MLM vs causal LM) must define task name in config (task: value) to avoid ambiguity.
 
 5. Integration with the Pipeline
@@ -51,6 +53,8 @@ Scripts must adhere to these constraints to ensure reproducibility, consistency,
 - Update pipeline runner to include script in correct order.
 - Test with both default.config and override.yaml.
 - For experimental tasks, verify isolation (outputs under unique run dir) and correct task labeling in override.yaml.
+- Do not include any lockfile or concurrency management (runner handles this).
+- Always return a complete, standalone script when updating or generating code.
 
 ---
 This spec ensures that all scripts are reproducible, config-driven, and portable within the pipeline system.

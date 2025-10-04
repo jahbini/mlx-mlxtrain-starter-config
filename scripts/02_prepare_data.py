@@ -1,25 +1,21 @@
 # scripts/02_prepare_data.py
 from __future__ import annotations
-import sys, os
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from config_loader import load_config
-cfg = load_config()
-
-from datasets import load_from_disk
-# STEP 3 — Data Validation & Stats
-# Inputs:
-#   - data_contract.json (from Step 2)
-# Outputs:
-#   - data_report.json   (per-split detailed stats & issues)
-# Console:
-#   - compact summary (counts, dupes, whitespace/control issues, length percentiles)
-import json, re, unicodedata, statistics, hashlib
+import sys, os, json, re, unicodedata, statistics, hashlib
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
-out_dir = Path(cfg.data.output_dir ); out_dir.mkdir(exist_ok=True)
-CONTRACT    = out_dir / cfg.data.contract
-REPORT      = out_dir / cfg.data.report
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config_loader import load_config
+
+# --- STEP-AWARE CONFIG ---
+CFG = load_config()
+STEP_NAME = os.environ["STEP_NAME"]
+STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
+PARAMS    = getattr(STEP_CFG, "params", {})
+
+OUT_DIR = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)); OUT_DIR.mkdir(exist_ok=True)
+CONTRACT = OUT_DIR / getattr(PARAMS, "contract", CFG.data.contract)
+REPORT   = OUT_DIR / getattr(PARAMS, "report", CFG.data.report)
 
 # Heuristics: potential stop/EOS markers to scan for
 EOS_MARKERS = [
@@ -48,7 +44,6 @@ def hash_text(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8", "ignore")).hexdigest()
 
 def char_classes(s: str) -> Dict[str, int]:
-    # Count basic unicode categories and control chars
     ctrl = sum(1 for ch in s if unicodedata.category(ch) in ("Cc","Cf"))
     ws   = sum(1 for ch in s if ch.isspace())
     nonascii = sum(1 for ch in s if ord(ch) > 127)
@@ -64,20 +59,10 @@ def percentiles(values: List[int], q=(5, 25, 50, 75, 95)) -> Dict[str, int]:
     return out
 
 def scan_file(path: Path, field: str) -> Dict[str, Any]:
-    n_lines = 0
-    bad_json = 0
-    missing_field = 0
-    non_str = 0
-    empty = 0
-    whitespace_only = 0
-    leading_ws = 0
-    trailing_ws = 0
-    ctrl_lines = 0
-
-    lengths = []
-    hashes = []
+    n_lines = bad_json = missing_field = non_str = 0
+    empty = whitespace_only = leading_ws = trailing_ws = ctrl_lines = 0
+    lengths, hashes = [], []
     eos_hits = {m: 0 for m in EOS_MARKERS}
-
     samples_good: List[str] = []
     samples_bad: List[str]  = []
 
@@ -126,11 +111,9 @@ def scan_file(path: Path, field: str) -> Dict[str, Any]:
                 samples_good.append(val)
 
     # duplicates
-    dup_count = 0
-    dup_examples = []
     from collections import Counter
-    c = Counter(hashes)
-    for h, cnt in c.items():
+    dup_count, dup_examples = 0, []
+    for h, cnt in Counter(hashes).items():
         if cnt > 1:
             dup_count += cnt - 1
             if len(dup_examples) < 3:
@@ -174,7 +157,7 @@ def scan_file(path: Path, field: str) -> Dict[str, Any]:
         },
     }
 
-# Load contract and validate
+# --- MAIN EXECUTION ---
 text_field, files, data_dir = load_contract(CONTRACT)
 report: Dict[str, Any] = {
     "created_utc": __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()),
@@ -187,17 +170,13 @@ for split, p in files.items():
     rep = scan_file(Path(p), text_field)
     report["splits"][split] = rep
 
-# Write full report
 REPORT.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 # Console summary
 print("=== DATA VALIDATION SUMMARY ===")
 for split, rep in report["splits"].items():
-    errs = rep["errors"]
-    empt = rep["empties"]
-    lens = rep["length_chars"]
-    eos  = rep["eos_markers_hits"]
-    dup  = rep["duplicates"]["duplicate_example_count"]
+    errs = rep["errors"]; empt = rep["empties"]; lens = rep["length_chars"]
+    eos = rep["eos_markers_hits"]; dup = rep["duplicates"]["duplicate_example_count"]
     print(f"- {split}: lines={rep['lines']} valid={rep['valid_examples']} "
           f"errors(bad/miss/nonstr)={errs['bad_json']}/{errs['missing_field']}/{errs['non_string_field']} "
           f"empties(exact/ws/lead/trail)={empt['empty_exact']}/{empt['whitespace_only']}/{empt['leading_whitespace']}/{empt['trailing_whitespace']} "

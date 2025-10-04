@@ -4,7 +4,14 @@ import os, sys, requests, json, re, time, random, hashlib
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
-cfg = load_config()
+import os, sys
+from pathlib import Path
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config_loader import load_config
+
+CFG = load_config()
+STEP_NAME = os.environ["STEP_NAME"]
+STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
 
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse, urldefrag

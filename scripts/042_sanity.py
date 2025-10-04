@@ -1,3 +1,4 @@
+# scripts/042_sanity.py
 # STEP 12 — Regeneration Sanity Checks (artifact + prompt ablation)
 # Goal: diagnose empty outputs by trying:
 #   1) artifact: quantized vs fused
@@ -8,26 +9,37 @@ from __future__ import annotations
 import os, sys, json, textwrap, time
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
+from collections import defaultdict
 from mlx_lm import load as mlx_load, generate as mlx_generate
 
+# --- Config loader ---
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
-cfg = load_config()
-OUT_DIR       = Path(cfg.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
-EVAL_DIR      = Path(cfg.eval.output_dir); EVAL_DIR.mkdir(exist_ok=True)
-RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-ARTIFACTS     = RUN_DIR / cfg.data.artifacts
-CONTRACT      = OUT_DIR / cfg.data.contract
-GEN_JSONL     = EVAL_DIR / (cfg.eval.generations + ".jsonl" )
-GEN_CSV       = EVAL_DIR / (cfg.eval.generations + ".csv")
-OUT_SUM       = EVAL_DIR / (cfg.eval.summary + ".csv")
-OUT_JSON      = EVAL_DIR / (cfg.eval.analysis + ".json")
-ABL_PATH      = EVAL_DIR / (cfg.eval.ablations + ".jsonl")
-ABL_YAML      = EVAL_DIR / ( cfg.eval.ablations +".yaml" )
+
+# --- STEP-AWARE CONFIG ---
+CFG       = load_config()
+STEP_NAME = os.environ["STEP_NAME"]
+STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
+PARAMS    = getattr(STEP_CFG, "params", {})
+
+# Resolve paths (params > global cfg)
+OUT_DIR   = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)); OUT_DIR.mkdir(exist_ok=True)
+EVAL_DIR  = Path(getattr(PARAMS, "eval_output_dir", CFG.eval.output_dir)); EVAL_DIR.mkdir(exist_ok=True)
+RUN_DIR   = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
+
+ARTIFACTS = RUN_DIR / getattr(PARAMS, "artifacts", CFG.data.artifacts)
+CONTRACT  = OUT_DIR / getattr(PARAMS, "contract", CFG.data.contract)
+
+GEN_JSONL = EVAL_DIR / (getattr(PARAMS, "generations", CFG.eval.generations) + ".jsonl")
+GEN_CSV   = EVAL_DIR / (getattr(PARAMS, "generations", CFG.eval.generations) + ".csv")
+OUT_SUM   = EVAL_DIR / (getattr(PARAMS, "summary", CFG.eval.summary) + ".csv")
+OUT_JSON  = EVAL_DIR / (getattr(PARAMS, "analysis", CFG.eval.analysis) + ".json")
+ABL_PATH  = EVAL_DIR / (getattr(PARAMS, "ablations", CFG.eval.ablations) + ".jsonl")
+ABL_YAML  = EVAL_DIR / (getattr(PARAMS, "ablations", CFG.eval.ablations) + ".yaml")
 
 # ---- Controls ----
-ONLY_MODEL_ID = ""  # "" = all; or exact id
-PROMPTS = cfg.sanity.prompts
+ONLY_MODEL_ID       = ""  # "" = all; or exact id
+PROMPTS             = getattr(PARAMS, "prompts", CFG.sanity.prompts)
 MAX_NEW_TOKENS_SHORT = 64
 MAX_NEW_TOKENS_LONG  = 128
 # -------------------
@@ -58,17 +70,14 @@ def pick_artifacts(run_entry: Dict[str, Any]) -> List[Tuple[str, Optional[str], 
         seen.add(key); uniq.append((m,a,label))
     return uniq
 
-# Prompt variants
+# --- Prompt variants ---
 def pv_plain(prompt: str) -> str:
-    # minimal: just the instruction
     return prompt
 
 def pv_directive(prompt: str) -> str:
-    # explicit response marker to discourage immediate EOS
     return f"{prompt}\n\nAnswer with a single important thought:"
 
 def pv_fewshot(prompt: str) -> str:
-    # prime with a couple of aphorism-style lines, then ask
     shots = [
         "The moon does not race the tide.",
         "A river carves stone by lingering.",
@@ -86,8 +95,7 @@ def run_generation(model_path: str, adapter_path: Optional[str], prompts: List[s
     outs=[]
     for p in prompts:
         txt = mlx_generate(model=model, tokenizer=tok, prompt=p, max_tokens=max_new)
-        # strip echoed prompt
-        cont = txt[len(p):] if txt.startswith(p) else txt
+        cont = txt[len(p):] if txt.startswith(p) else txt  # strip echoed prompt
         outs.append(cont.strip())
     meta = {
         "eos_token": getattr(tok, "eos_token", None),
@@ -100,7 +108,7 @@ def run_generation(model_path: str, adapter_path: Optional[str], prompts: List[s
 def preview(text: str, width=120) -> str:
     return textwrap.shorten(text.replace("\n"," ⏎ "), width=width, placeholder="…")
 
-# Orchestrate
+# --- Orchestrate ---
 runs = load_runs()
 stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 rows=[]
@@ -109,7 +117,6 @@ for run in runs:
     art_list = pick_artifacts(run)
 
     for model_path, adapter_path, art_label in art_list:
-        # Try each prompt variant, short then long budget
         for pv_label, pv_fn in PROMPT_VARIANTS:
             prompts_v = [pv_fn(p) for p in PROMPTS]
 
@@ -144,31 +151,24 @@ for run in runs:
                         "is_empty": int(len(o.strip())==0),
                     })
 
-# Save quick table
+# --- Save quick JSONL ---
 with ABL_PATH.open("w", encoding="utf-8") as f:
     for r in rows:
         f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 print(f"\nSaved detailed ablation outputs to {ABL_PATH}")
-# --- NEW: write a grouped-by-prompt YAML snapshot with full records ---
-from collections import defaultdict
 
-
+# --- Save grouped YAML ---
 try:
-    import yaml  # requires PyYAML
+    import yaml
 except ImportError:
-    raise RuntimeError(
-        "PyYAML is required to write eval_out/generations.yaml. "
-        "Install with: pip install pyyaml"
-    )
+    raise RuntimeError("PyYAML is required to write ablations.yaml. Install with: pip install pyyaml")
 
-# Group all records by prompt; keep each record 'as-is' (includes model_id, mode, generation, etc.)
 grouped = defaultdict(list)
 for r in rows:
     prompt = (r.get("prompt") or "").strip()
     grouped[prompt].append(r)
 
-# Write YAML (human-friendly, preserve insertion order, allow Unicode)
 with ABL_YAML.open("w", encoding="utf-8") as yf:
     yaml.safe_dump(dict(grouped), yf, allow_unicode=True, sort_keys=False)
 

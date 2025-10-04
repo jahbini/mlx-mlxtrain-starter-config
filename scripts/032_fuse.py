@@ -1,31 +1,30 @@
+# scripts/09_fuse_quantize.py
 from __future__ import annotations
 from pathlib import Path
-import sys, os
-from datasets import load_from_disk
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-# STEP 9 — Fuse & Quantize (final, clean/idempotent)
-# - Reuses experiments.csv + artifacts.json from Steps 6–8
-# - If needed, fuses adapter -> fused/model  (mlx_lm fuse)
-# - Quantizes fused -> quantized/ (mlx_lm convert with explicit flags)
-# - Removes any pre-existing quantized dir to avoid MLX "already exists" error
-# - Updates artifacts.json
-
-import json, hashlib, time, shlex, subprocess, sys, shutil
+import sys, os, json, hashlib, time, shlex, subprocess, shutil
 from typing import Dict, Any, List
 
+# --- Config loader ---
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
-cfg = load_config()
 
-RUN_DIR       = Path(cfg.run.output_dir)  # where per-model outputs will go
-ARTIFACTS     = RUN_DIR / cfg.data.artifacts
+# --- STEP-AWARE CONFIG ---
+CFG = load_config()
+STEP_NAME = os.environ["STEP_NAME"]
+STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
+PARAMS    = getattr(STEP_CFG, "params", {})
 
-# ---- Controls ----
-DO_FUSE   = True           # set False to skip fusing (if already fused)
-Q_BITS    = 4              # 4 or 8
-Q_GROUP   = 64             # e.g., 32, 64, 128
-DTYPE     = cfg.model.dtype     # float16 | bfloat16 | float32
-DRY_RUN   = False
-# -------------------
+# Resolve paths (params > global cfg)
+RUN_DIR   = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
+ARTIFACTS = RUN_DIR / getattr(PARAMS, "artifacts", CFG.data.artifacts)
+
+# ---- Controls (params > global cfg) ----
+DO_FUSE = PARAMS.get("do_fuse", True)
+Q_BITS  = int(PARAMS.get("q_bits", 4))           # 4 or 8
+Q_GROUP = int(PARAMS.get("q_group", 64))         # e.g. 32, 64, 128
+DTYPE   = PARAMS.get("dtype", CFG.model.dtype)   # float16 | bfloat16 | float32
+DRY_RUN = bool(PARAMS.get("dry_run", False))
+# ----------------------------------------
 
 def run_cmd(cmd: str) -> int:
     print("[MLX]", cmd)
@@ -43,7 +42,8 @@ def sha256_file(p: Path) -> str:
 
 def list_files(root: Path) -> List[Dict[str, Any]]:
     out = []
-    if not root.exists(): return out
+    if not root.exists():
+        return out
     for p in sorted(root.rglob("*")):
         if p.is_file():
             out.append({
@@ -55,9 +55,9 @@ def list_files(root: Path) -> List[Dict[str, Any]]:
             })
     return out
 
-# Load artifacts (for adapter paths) and experiments (for model_ids)
+# Load artifacts
 if not ARTIFACTS.exists():
-    raise SystemExit("artifacts.json not found. Run Steps 8/7/6 first.")
+    raise SystemExit("artifacts.json not found. Run Steps 6–8 first.")
 
 registry = json.loads(ARTIFACTS.read_text(encoding="utf-8"))
 runs = registry.get("runs", [])
@@ -73,7 +73,7 @@ for entry in runs:
     adapter_dir = Path(entry["adapter_dir"])
     fused_dir   = Path(entry.get("fused_dir") or (output_dir / "fused" / "model"))
 
-    # 1) Fuse (optional / idempotent)
+    # --- 1) Fuse (optional / idempotent) ---
     if DO_FUSE and not fused_dir.exists():
         fused_dir.parent.mkdir(parents=True, exist_ok=True)
         cmd_fuse = (
@@ -98,19 +98,18 @@ for entry in runs:
         print(f"Skipping quantize for {model_id}: fused_dir missing.")
         continue
 
-    # 2) Quantize (idempotent + clean)
+    # --- 2) Quantize (idempotent + clean) ---
     q_dir = output_dir / "quantized"
     if q_dir.exists():
         print(f"Removing pre-existing quantized dir: {q_dir}")
         shutil.rmtree(q_dir)
-    #q_dir.mkdir(parents=True, exist_ok=True)
 
     cmd_q = (
         f"{py} -m mlx_lm.convert "
         f"--hf-path {shlex.quote(str(fused_dir))} "
         f"--mlx-path {shlex.quote(str(q_dir))} "
-        f"--q-bits {int(Q_BITS)} "
-        f"--q-group-size {int(Q_GROUP)} "
+        f"--q-bits {Q_BITS} "
+        f"--q-group-size {Q_GROUP} "
         f"--dtype {shlex.quote(DTYPE)} "
         f"-q"
     )
@@ -121,8 +120,8 @@ for entry in runs:
         continue
 
     entry["quantized_dir"] = str(q_dir.resolve())
-    entry["quantize_bits"] = int(Q_BITS)
-    entry["q_group_size"]  = int(Q_GROUP)
+    entry["quantize_bits"] = Q_BITS
+    entry["q_group_size"]  = Q_GROUP
     entry.setdefault("files", {})["quantized"] = list_files(q_dir)
     updated = True
 
