@@ -43,34 +43,18 @@ pipeline:
       run: scripts/03_train.py
       depends_on: [register]
 
+    examination:
+      run: scripts/042_examination.py
+      depends_on [fuse]
+
     metrics:
       run: scripts/041_metrics.py
-      depends_on: [snapshot]
+      depends_on: [never]
 
     sanity:
       run: scripts/042_sanity.py
-      depends_on: [metrics,fuse]
+      depends_on: [never,fuse]
 
     snapshot:
       run: scripts/04_snapshot.py
       depends_on: [train]
-
-    eval:
-      run: scripts/05_eval.py
-      depends_on: [sanity]
-
-    entropy:
-      run: scripts/115_entropy.py
-      depends_on: [fuse,eval,snapshot]
-
-    prepare_outmd:
-      run: scripts/80_prepare_outmd.py
-      depends_on: [entropy]
-
-    train_sft:
-      run: scripts/81_train_sft.py
-      depends_on: [never]
-
-    chat_jim:
-      run: scripts/chat_jim.py
-      depends_on: [never]
