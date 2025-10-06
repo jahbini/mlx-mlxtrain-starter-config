@@ -50,7 +50,7 @@ exports.load_config = ->
   execDir = process.env.EXEC or process.cwd()
   pwdDir  = process.env.PWD  or process.cwd()
 
-  defaultPath = path.join execDir, 'default.config'
+  defaultPath = path.join execDir, 'config/default.yaml'
   overrideYaml = path.join pwdDir, 'override.yaml'
   overrideJson = path.join pwdDir, 'override.json'
 

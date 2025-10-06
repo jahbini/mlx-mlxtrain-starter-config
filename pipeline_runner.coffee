@@ -237,23 +237,50 @@ expandIncludes = (spec, baseDir) ->
     merged = deepMerge merged, sub
   merged
 
+# --- add this helper once ---
+buildEnvOverrides = (prefix = 'CFG_') ->
+  out = {}
+  for own k, v of process.env when k.indexOf(prefix) is 0
+    parts = k.substring(prefix.length).split('__')
+    val = v
+    try val = JSON.parse(v) catch e then val = v
+    node = out
+    for i in [0...parts.length-1]
+      p = parts[i]
+      node[p] ?= {}
+      node = node[p]
+    node[parts[parts.length-1]] = val
+  out
+
+# --- replace createExperimentYaml with this version ---
 createExperimentYaml = (basePath, overridePath) ->
   banner "🔧 Creating experiment.yaml"
-  baseAbs = path.resolve(basePath)
-  baseDir = path.dirname(baseAbs)
 
-# Always merge defaults → base → override
-  defaults = loadYamlSafe("config/default.yaml")
-  base     = loadYamlSafe(baseAbs)
-  base     = expandIncludes(base, baseDir)
-  override = loadYamlSafe(overridePath)
+  EXEC = process.env.EXEC ? process.cwd()
+  defaultPath = path.join(EXEC, 'config', 'default.yaml')
 
-  merged = deepMerge(JSON.parse(JSON.stringify(defaults)), base)
-  merged = deepMerge(merged, override)
+  baseAbs  = path.resolve(basePath)
+  baseDir  = path.dirname(baseAbs)
 
-  expPath = path.join(process.cwd(), "experiment.yaml")
-  fs.writeFileSync(expPath, yaml.dump(merged), "utf8")
-  console.log "✅ Wrote experiment.yaml:", expPath
+  defaults = loadYamlSafe(defaultPath)            # 1) global defaults (run/data/eval/etc.)
+  base     = loadYamlSafe(baseAbs)                # 2) recipe
+  base     = expandIncludes(base, baseDir)        #    + sub-recipes/includes
+  override = loadYamlSafe(overridePath)           # 3) local override.yaml
+  envOv    = buildEnvOverrides('CFG_')            # 4) CFG_* environment
+
+  # precedence: defaults < recipe(+includes) < override.yaml < env
+  merged = deepMerge {}, defaults
+  merged = deepMerge merged, base
+  merged = deepMerge merged, override
+  merged = deepMerge merged, envOv
+
+  # tiny sanity signal (optional)
+  if not (merged?.run? and merged.run.output_dir?)
+    console.warn "⚠️  run.output_dir missing after merge; check defaults/override."
+
+  expPath = path.join(process.cwd(), 'experiment.yaml')
+  fs.writeFileSync expPath, yaml.dump(merged), 'utf8'
+  console.log "✅ Wrote experiment.yaml (defaults+recipe+override+env):", expPath
   expPath
 
 # --------------------------------------

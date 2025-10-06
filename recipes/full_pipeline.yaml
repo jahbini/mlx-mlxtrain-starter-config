@@ -45,7 +45,7 @@ pipeline:
 
     examination:
       run: scripts/042_examination.py
-      depends_on [fuse]
+      depends_on: [fuse]
 
     metrics:
       run: scripts/041_metrics.py
@@ -53,7 +53,7 @@ pipeline:
 
     sanity:
       run: scripts/042_sanity.py
-      depends_on: [never,fuse]
+      depends_on: [never]
 
     snapshot:
       run: scripts/04_snapshot.py

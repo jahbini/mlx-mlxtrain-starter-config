@@ -5,7 +5,6 @@ run:
 
 experiments:
   - microsoft/Phi-3-mini-4k-instruct
-  - TinyLlama/TinyLlama-1.1B-Chat-v1.0
 
 paths:                            # replaces *_PATH constants
   tokenizer: "tokenizer_meta"
@@ -39,6 +38,10 @@ eval:
   recreate: "repro.sh"
   analysis: "eos_analysis"
   summary: "eos_summary"
+
+entropy:
+  eval_output_dir: "eval_out"
+  
 
 web:
   base: "stjohnsjim.com"

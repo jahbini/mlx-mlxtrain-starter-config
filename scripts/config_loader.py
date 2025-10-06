@@ -100,6 +100,7 @@ def load_config(env_prefix: str = "CFG_") -> Config:
 
     default_path = Path(__file__).parent / "config" / "default.yaml"
     cfg = _load_yaml(str(default_path))
+    print("JJIMM",cfg,str(default_path))
     _deep_update(cfg, _load_yaml("./override.yaml"))
     _deep_update(cfg, _env_overrides(env_prefix))
     return Config(cfg)

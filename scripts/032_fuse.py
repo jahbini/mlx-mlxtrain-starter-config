@@ -56,6 +56,7 @@ def list_files(root: Path) -> List[Dict[str, Any]]:
     return out
 
 # Load artifacts
+
 if not ARTIFACTS.exists():
     raise SystemExit("artifacts.json not found. Run Steps 6–8 first.")
 
@@ -77,7 +78,7 @@ for entry in runs:
     if DO_FUSE and not fused_dir.exists():
         fused_dir.parent.mkdir(parents=True, exist_ok=True)
         cmd_fuse = (
-            f"{py} -m mlx_lm.fuse "
+            f"{py} -m mlx_lm fuse "
             f"--model {shlex.quote(model_id)} "
             f"--adapter-path {shlex.quote(str(adapter_dir))} "
             f"--save-path {shlex.quote(str(fused_dir))}"
@@ -105,7 +106,7 @@ for entry in runs:
         shutil.rmtree(q_dir)
 
     cmd_q = (
-        f"{py} -m mlx_lm.convert "
+        f"{py} -m mlx_lm convert "
         f"--hf-path {shlex.quote(str(fused_dir))} "
         f"--mlx-path {shlex.quote(str(q_dir))} "
         f"--q-bits {Q_BITS} "
@@ -114,6 +115,7 @@ for entry in runs:
         f"-q"
     )
     print("\n=== QUANTIZE ===")
+    print("JIM",cmd_q)
     rc = run_cmd(cmd_q)
     if rc != 0:
         print(f"❌ Quantize failed for {model_id}")

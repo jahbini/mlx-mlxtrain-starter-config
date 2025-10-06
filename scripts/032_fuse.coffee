@@ -92,6 +92,7 @@ for entry in runs
   adapterDir = if entry.adapter_dir? then entry.adapter_dir else null
   fusedDir   = entry.fused_dir or path.join outputDir, 'fused', 'model'
 
+  print("JIM0")
   # 1) Fuse (optional / idempotent)
   if DO_FUSE and not fs.existsSync fusedDir
     fs.mkdirSync path.dirname(fusedDir), recursive: true
@@ -119,6 +120,7 @@ for entry in runs
     continue
 
   # 2) Quantize (idempotent + clean)
+  print("JIM1")
   qDir = path.join outputDir, 'quantized'
   if fs.existsSync qDir
     if DRY_RUN
@@ -138,6 +140,7 @@ for entry in runs
   """.trim()
 
   console.log "\n=== QUANTIZE ==="
+  print("JIM2")
   rc = runCmd cmdQ
   if rc isnt 0
     console.error "❌ Quantize failed for #{modelId}"
