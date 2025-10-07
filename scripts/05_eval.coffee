@@ -14,6 +14,7 @@ _        = require 'lodash'
 
 {load_config} = require './config_loader'
 cfg       = load_config()
+console.log "JIM PIPELINE",cfg.pipeline
 STEP_NAME = process.env.STEP_NAME
 STEP_CFG  = cfg.pipeline.steps[STEP_NAME]
 PARAMS    = STEP_CFG?.params or {}

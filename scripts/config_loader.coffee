@@ -50,6 +50,10 @@ exports.load_config = ->
   execDir = process.env.EXEC or process.cwd()
   pwdDir  = process.env.PWD  or process.cwd()
 
+  exp_path = process.cwd() + "/evaluate.yaml"
+  if fs.existsSync exp_path
+     return loadFile exp_path
+
   defaultPath = path.join execDir, 'config/default.yaml'
   overrideYaml = path.join pwdDir, 'override.yaml'
   overrideJson = path.join pwdDir, 'override.json'

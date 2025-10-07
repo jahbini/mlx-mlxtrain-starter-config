@@ -5,29 +5,10 @@
 pipeline:
   steps:
 
-    # Step 1: Sanity check on generated outputs
-    042_sanity:
-      run: scripts/042_sanity.coffee
-      depends_on: []
-      inputs:
-        - run/data/data_contract.json
-        - run/artifacts.json
-      outputs:
-        - eval_out/sanity.jsonl
-
-    # Step 2: Aggregation of ablations
-    043_ablate:
-      run: scripts/043_ablate.coffee
-      depends_on: [042_sanity]
-      inputs:
-        - eval_out/sanity.jsonl
-      outputs:
-        - eval_out/ablations.jsonl
 
     # Step 3: Final evaluation report and policy generation
-    05_eval:
+    eval:
       run: scripts/05_eval.coffee
-      depends_on: [043_ablate]
       inputs:
         - eval_out/ablations.jsonl
         - run/artifacts.json
@@ -35,17 +16,14 @@ pipeline:
         - eval_out/report.md
         - eval_out/generation_policy.json
 
-    eval:
-      run: scripts/05_eval.py
-      depends_on: [sanity]
 
     entropy:
       run: scripts/115_entropy.py
-      depends_on: [fuse,eval,snapshot]
+      depends_on: [eval]
 
     prepare_outmd:
       run: scripts/80_prepare_outmd.py
-      depends_on: [entropy]
+      depends_on: [eval]
 
     train_sft:
       run: scripts/81_train_sft.py

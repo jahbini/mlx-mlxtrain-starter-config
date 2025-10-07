@@ -340,6 +340,7 @@ main = ->
   DEBUG      = !!(process.env.DEBUG? and String(process.env.DEBUG).toLowerCase() in ['1','true','yes'])
 
   console.log "CWD:", process.cwd()
+  console.log "EXEC", process.env.XEC
   banner "Recipe (base): #{baseRecipe}"
 
   # Pre-flatten experiment config
