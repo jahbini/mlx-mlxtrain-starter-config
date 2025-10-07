@@ -42,7 +42,6 @@ runCoffeeScript = (stepName, scriptPath, envOverrides={}) ->
 # Main
 # --------------------------------------
 main = ->
-  ensureSingleInstance()
 
   baseRecipe = process.argv[2] ? 'recipes/eval_pipeline.yaml'
   dotOut     = process.env.DOT_OUT ? process.argv[3] ? null
