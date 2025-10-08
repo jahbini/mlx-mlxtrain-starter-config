@@ -16,6 +16,10 @@ pipeline:
         - eval_out/report.md
         - eval_out/generation_policy.json
 
+    metrics:
+      run: scripts/041_metrics.py
+      depends_on: [eval]
+
 
     entropy:
       run: scripts/115_entropy.py

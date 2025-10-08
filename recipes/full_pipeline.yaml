@@ -35,26 +35,22 @@ pipeline:
       run: scripts/031_register.py
       depends_on: [prepare_data]
 
-    fuse:
-      run: scripts/032_fuse.py
-      depends_on: [train]
-
     train:
       run: scripts/03_train.py
       depends_on: [register]
+
+    fuse:
+      run: scripts/032_fuse.py
+      depends_on: [train]
 
     examination:
       run: scripts/042_examination.py
       depends_on: [fuse]
 
-    metrics:
-      run: scripts/041_metrics.py
-      depends_on: [never]
-
     sanity:
       run: scripts/042_sanity.py
-      depends_on: [never]
+      depends_on: [snapshot]
 
     snapshot:
       run: scripts/04_snapshot.py
-      depends_on: [train]
+      depends_on: [examination]
