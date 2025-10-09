@@ -27,11 +27,11 @@ pipeline:
 
     entropy:
       run: scripts/115_entropy.py
-      depends_on: [eval]
+      depends_on: [never]
 
     prepare_outmd:
       run: scripts/80_prepare_outmd.py
-      depends_on: [eval]
+      depends_on: [never]
 
     train_sft:
       run: scripts/81_train_sft.py

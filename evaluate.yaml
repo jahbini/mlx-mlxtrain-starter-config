@@ -1,0 +1,124 @@
+run:
+  seed: 42
+  alt_seed: 7
+  output_dir: run
+experiments:
+  - microsoft/Phi-3-mini-4k-instruct
+paths:
+  tokenizer: tokenizer_meta
+snapshot:
+  output_dir: snapshots
+  fused: fused/model
+  quant: quantized
+  max_new: 128
+  seed: 7
+  n_shots: 3
+  min_words: 3
+  retries: 2
+  prompts:
+    - Tell us who lives in the house of the three gunas.
+    - Offer a short proverb on patience.
+    - Give a hopeful saying for a widow.
+sanity:
+  prompts:
+    - Share a saying about luck.
+    - Offer a short proverb on patience.
+    - Give a hopeful saying for a widow.
+eval:
+  generations: generations
+  output_dir: eval_out
+  ablations: ablation_generations
+  report: report.md
+  policy: generation_policy.json
+  recreate: repro.sh
+  analysis: eos_analysis
+  summary: eos_summary
+entropy:
+  eval_output_dir: eval_out
+web:
+  base: stjohnsjim.com
+  content_id: bloviation
+  user_agent: SJJ-JSONL/voice-continuer/1.0
+  request_timeout: 20
+  pause_sec: 0.5
+  valid_fraction: 0.2
+  min_story_words: 120
+  min_prompt_words: 100
+  max_prompt_words: 300
+  min_completion_words: 40
+  max_completion_words: 160
+  max_examples_per_story: 6
+data:
+  output_dir: run/data
+  experiments_csv: experiments.csv
+  artifacts: artifacts.json
+  contract: data_contract.json
+  policy: format_policy.json
+  catalog: data_catalog.json
+  report: data_report.json
+  hf_dataset: asuender/motivational-quotes
+  subset: quotes
+  mode: sft
+  valid_fraction: 0.02
+  min_words: 5
+  max_words: 60
+  format:
+    mode: plain
+    prompt_key: prompt
+    completion_key: completion
+  split:
+    valid_fraction: 0.02
+model:
+  name: microsoft/Phi-4-reasoning-plus
+  dtype: float16
+  context_length: 8192
+trainer:
+  epochs: 1
+  batch_size: 1
+  grad_accum: 8
+  max_seq_length: 512
+  learning_rate: 0.0002
+  bf16: true
+  iters_override: 0
+sweep:
+  base_models:
+    - TinyLlama/TinyLlama-1.1B-Chat-v1.0
+  hyperparams: {}
+crawl:
+  mode: urls
+  urls:
+    seeds_path: seeds.txt
+    max_pages: 50
+    user_agent: Mozilla/5.0 (MLX-Voice-Crawl)
+    timeout: 15
+  files:
+    glob: source_html/*.html
+  filters:
+    min_words: 5
+    max_words: 6000
+pipeline:
+  steps:
+    eval:
+      run: scripts/05_eval.coffee
+      inputs:
+        - eval_out/ablations.jsonl
+        - run/artifacts.json
+      outputs:
+        - eval_out/report.md
+        - eval_out/generation_policy.json
+    entropy:
+      run: scripts/115_entropy.py
+      depends_on:
+        - never
+    prepare_outmd:
+      run: scripts/80_prepare_outmd.py
+      depends_on:
+        - never
+    train_sft:
+      run: scripts/81_train_sft.py
+      depends_on:
+        - never
+    chat_jim:
+      run: scripts/chat_jim.py
+      depends_on:
+        - never
