@@ -5,6 +5,9 @@
 pipeline:
   steps:
 
+    pre_eval:
+      run: scripts/042_pre_eval.coffee
+      depends_on: []
 
     # Step 3: Final evaluation report and policy generation
     eval:
@@ -15,10 +18,11 @@ pipeline:
       outputs:
         - eval_out/report.md
         - eval_out/generation_policy.json
+      depends_on: [metrics]
 
     metrics:
       run: scripts/041_metrics.py
-      depends_on: [eval]
+      depends_on: [pre_eval]
 
 
     entropy:
