@@ -36,8 +36,11 @@ writeCSV = (p, rows) ->
   fs.writeFileSync(p, buf.join('\n'), 'utf8')
 
 mean = (xs) ->
-  return 0 unless xs.length
-  xs.reduce((a,b)->a+b,0) / xs.length
+  return 0 unless xs?.length
+  sum = 0
+  for x in xs when typeof x is 'number'
+    sum += x
+  sum / xs.length
 
 timestampUTC = ->
   new Date().toISOString().replace(/\.\d+Z$/,'Z')
