@@ -2,32 +2,34 @@
 
 ###
 STEP 13 — Comparative Report & Policy Lock-in (CoffeeScript version)
-
 - Reads eval_out/ablations.jsonl + artifacts.json
 - Computes metrics: empty_rate, sent_end_rate, avg_len, med_len
 - Writes: eval_out/report.md and eval_out/generation_policy.json
 ###
 
-fs       = require 'fs'
-path     = require 'path'
-_        = require 'lodash'
+fs   = require 'fs'
+path = require 'path'
+_    = require 'lodash'
+yaml = require 'js-yaml'
 
-{load_config} = require './config_loader'
-cfg       = load_config()
-console.log "JIM PIPELINE",cfg.pipeline
-STEP_NAME = process.env.STEP_NAME
-STEP_CFG  = cfg.pipeline.steps[STEP_NAME]
-PARAMS    = STEP_CFG?.params or {}
+# --- Local Config Loader for Evaluation Context ---
+loadLocalConfig = ->
+  expPath = path.join(process.cwd(), 'experiment.yaml')
+  unless fs.existsSync(expPath)
+    console.error "❌ Missing experiment.yaml in #{process.cwd()}"
+    process.exit(1)
+  yaml.load fs.readFileSync(expPath, 'utf8')
 
-EVAL_DIR  = path.resolve PARAMS.eval_output_dir or cfg.eval.output_dir
-RUN_DIR   = path.resolve PARAMS.run_dir or cfg.run.output_dir
+CFG = loadLocalConfig()
 
-fs.mkdirSync EVAL_DIR, {recursive:true}
+EVAL_DIR = path.resolve CFG.eval.output_dir
+RUN_DIR  = path.resolve CFG.run.output_dir
+fs.mkdirSync EVAL_DIR, { recursive: true }
 
-ARTIFACTS = path.join RUN_DIR, PARAMS.artifacts or cfg.data.artifacts
-ABL_JSONL = path.join EVAL_DIR, "#{PARAMS.ablations or cfg.eval.ablations}.jsonl"
-REPORT_MD = path.join EVAL_DIR, PARAMS.report or cfg.eval.report
-POLICY_JS = path.join EVAL_DIR, PARAMS.policy or cfg.eval.policy
+ARTIFACTS = path.join RUN_DIR, CFG.data.artifacts
+ABL_JSONL = path.join EVAL_DIR, "#{CFG.eval.ablations}.jsonl"
+REPORT_MD = path.join EVAL_DIR, CFG.eval.report
+POLICY_JS = path.join EVAL_DIR, CFG.eval.policy
 
 unless fs.existsSync ABL_JSONL
   console.error "Missing ablations.jsonl (Step 12)"
