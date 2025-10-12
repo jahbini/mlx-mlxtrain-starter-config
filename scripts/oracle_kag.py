@@ -12,7 +12,7 @@ This script:
   5. Writes a unified story_hashtags.jsonl for downstream dataset builders
 
 Inputs:
-  jim.md (or other Markdown file path from cfg["hashtagger"]["input_md"])
+  jim.md (or other Markdown file path from cfg["oracle_kag"]["input_md"])
 
 Outputs:
   stories_out/
@@ -22,7 +22,7 @@ Outputs:
 Config integration:
   Reads model + prompt templates from load_config(), e.g.:
 
-  hashtagger:
+  oracle_kag:
     model: microsoft/Phi-3-mini-4k-instruct
     input_md: jim.md
     prompts:
@@ -49,6 +49,45 @@ from mlx_lm import load, generate
 # ---------------------------
 from config_loader import load_config
 
+# --- SETUP ---
+start = time.time()
+
+CFG = load_config()
+STEP_NAME = os.environ.get("STEP_NAME", "oracle_kag")
+STEP_CFG = CFG.pipeline.steps.get(STEP_NAME)
+PARAMS = CFG.oracle_kag
+
+# --- RESOLVE ROOT AND PATHS ---
+ROOT = Path(os.getenv("EXEC", Path(__file__).parent)).resolve()
+os.chdir(ROOT)
+
+# --- MODEL AND INPUT SETTINGS ---
+MODEL_ID     = getattr(PARAMS, "model", CFG.model)
+INPUT_MD     = Path(getattr(PARAMS, "input_md", "jim.md")).resolve()
+PROMPT       = getattr(PARAMS, "prompt_template",
+                       "List {num_tags} emotional or archetypal themes present in this story:")
+NUM_TAGS     = int(getattr(PARAMS, "num_tags", 10))
+MAX_TOKENS   = int(getattr(PARAMS, "max_tokens", 200))
+TOP_N        = int(getattr(PARAMS, "top_n", 15))
+MIN_GLOBAL   = int(getattr(PARAMS, "min_global", 2))
+
+# --- OUTPUT PATHS ---
+OUT_DIR      = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)).resolve()
+STORIES_OUT  = OUT_DIR / "stories_out"
+HASHTAGS_OUT = OUT_DIR / "hashtags"
+for p in (OUT_DIR, STORIES_OUT, HASHTAGS_OUT):
+    p.mkdir(parents=True, exist_ok=True)
+
+# --- LOG SUMMARY ---
+print(f"🧭 Oracle KAG configuration:")
+print(f"  Model:       {MODEL_ID}")
+print(f"  Input file:  {INPUT_MD}")
+print(f"  Output dir:  {OUT_DIR}")
+print(f"  Num tags:    {NUM_TAGS}, Max tokens: {MAX_TOKENS}")
+print(f"  Reinforce:   top_n={TOP_N}, min_global={MIN_GLOBAL}")
+print(f"  Prompt:      {PROMPT}")
+
+# (continue with loading model, parsing markdown, etc.)
 # ---------------------------
 # MARKDOWN PARSER
 # ---------------------------
@@ -161,16 +200,6 @@ def build_hashtag_index(stories_dir="stories_out", hashtags_dir="hashtags"):
 # ---------------------------
 def main():
     start = time.time()
-    cfg = load_config()
-    ROOT = Path(os.getenv("EXEC", Path(__file__).parent)).resolve()
-    os.chdir(ROOT)
-
-    model_name = cfg["hashtagger"]["model"]
-    input_md = cfg["hashtagger"].get("input_md", "jim.md")
-    emotional_prompt = cfg["hashtagger"]["prompts"]["emotional"]
-    num_tags = int(cfg["hashtagger"].get("num_tags", 10))
-    max_tokens = int(cfg["hashtagger"].get("max_tokens", 200))
-    reinforce_cfg = cfg["hashtagger"].get("reinforce", {"top_n": 15, "min_global": 2})
 
     print(f"=== Oracle KAG starting ===")
     print(f"Model: {model_name}")

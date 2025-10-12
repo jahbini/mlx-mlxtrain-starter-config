@@ -1,0 +1,78 @@
+# ==========================================
+# markdownToKag.yaml
+# Build a Keyword-Augmented (KAG) dataset
+# from Markdown stories.
+#
+# Output:
+#   - stories_out/
+#   - hashtags/
+#   - story_hashtags.jsonl
+#   - train_ready.jsonl
+# ==========================================
+
+run:
+  title: "Markdown → KAG Dataset"
+  desc: "Convert Markdown corpus into structured story dataset with emotional archetypes and hashtags"
+
+pipeline:
+  steps:
+
+    # 1️⃣ Parse Markdown and extract archetypal/emotional tags
+    oracle_kag:
+      run: scripts/oracle_kag.py
+      depends_on: []
+      params:
+        # Path to the source markdown file (relative to dataset dir)
+        input_md: jim.md
+
+        # Model to use for in-process generation
+        model: microsoft/Phi-3-mini-4k-instruct
+
+        # Output base directory (usually auto-set by pipeline_runner)
+        output_dir: eval_out
+
+        # Prompt template for tag generation
+        prompt_template: "List {num_tags} emotional or archetypal themes present in this story:"
+
+        # Generation and filtering settings
+        num_tags: 10
+        max_tokens: 200
+        top_n: 15
+        min_global: 2
+
+    # 2️⃣ Optional step: build index across hashtags
+    kag_index:
+      run: scripts/oracle_kag.py
+      depends_on: [oracle_kag]
+      params:
+        # Reuse outputs of oracle_kag
+        input_md: jim.md
+        model: microsoft/Phi-3-mini-4k-instruct
+        output_dir: eval_out
+        num_tags: 0    # Skip generation, just rebuild index
+kag_index:
+        # Reuse outputs of oracle_kag
+        input_md: jim.md
+        model: microsoft/Phi-3-mini-4k-instruct
+        output_dir: eval_out
+        num_tags: 0    # Skip generation, just rebuild index
+oracle_kag:
+        # Path to the source markdown file (relative to dataset dir)
+        input_md: jim.md
+
+        # Model to use for in-process generation
+        model: microsoft/Phi-3-mini-4k-instruct
+
+        # Output base directory (usually auto-set by pipeline_runner)
+        output_dir: eval_out
+
+        # Prompt template for tag generation
+        prompt_template: "List {num_tags} emotional or archetypal themes present in this story:"
+
+        # Generation and filtering settings
+        num_tags: 10
+        max_tokens: 200
+        top_n: 15
+        min_global: 2
+
+
