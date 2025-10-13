@@ -77,3 +77,10 @@ pipeline:
         valid_fraction: 0.1
         min_story_words: 50
         max_examples_per_story: 6
+
+    extract_keywords_kag:
+      run: scripts/043_extract_keywords_kag.coffee
+      depends_on: [prepare_outmd_kag]
+      params:
+        input_jsonl: out_kag.jsonl
+        output_jsonl: out_kag_keywords.jsonl
