@@ -1,35 +1,55 @@
-# scripts/09_fuse_quantize.py
+#!/usr/bin/env python3
+"""
+032_fuse.py  —  Fuse and Quantize Models
+----------------------------------------
+
+Fuses LoRA adapters into base models and performs MLX quantization.
+
+Pipeline compliance:
+  • All parameters from config
+  • Deterministic, idempotent
+  • Logs written under <run_dir>/logs/
+"""
+
 from __future__ import annotations
 from pathlib import Path
 import sys, os, json, hashlib, time, shlex, subprocess, shutil
 from typing import Dict, Any, List
 
-# --- Config loader ---
+# --- Config loader --------------------------------------------------
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
 
-# --- STEP-AWARE CONFIG ---
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
 STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
 PARAMS    = getattr(STEP_CFG, "params", {})
 
-# Resolve paths (params > global cfg)
+# --- Directories ----------------------------------------------------
 RUN_DIR   = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
 ARTIFACTS = RUN_DIR / getattr(PARAMS, "artifacts", CFG.data.artifacts)
+LOG_DIR   = RUN_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_PATH  = LOG_DIR / f"{STEP_NAME}.log"
 
-# ---- Controls (params > global cfg) ----
+def log(msg: str):
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    line  = f"[{stamp}] {msg}"
+    with LOG_PATH.open("a", encoding="utf-8") as f:
+        f.write(line + "\n")
+    print(line, flush=True)
+
+# --- Controls -------------------------------------------------------
 DO_FUSE = PARAMS.get("do_fuse", True)
-Q_BITS  = int(PARAMS.get("q_bits", 4))           # 4 or 8
-Q_GROUP = int(PARAMS.get("q_group", 64))         # e.g. 32, 64, 128
-DTYPE   = PARAMS.get("dtype", CFG.model.dtype)   # float16 | bfloat16 | float32
+Q_BITS  = int(PARAMS.get("q_bits", 4))
+Q_GROUP = int(PARAMS.get("q_group", 64))
+DTYPE   = PARAMS.get("dtype", getattr(CFG.model, "dtype", "float16"))
 DRY_RUN = bool(PARAMS.get("dry_run", False))
-# ----------------------------------------
 
 def run_cmd(cmd: str) -> int:
-    print("[MLX]", cmd)
+    log(f"[MLX] {cmd}")
     if DRY_RUN:
-        print("DRY_RUN=True -> not executing.")
+        log("DRY_RUN=True → not executing.")
         return 0
     return subprocess.run(cmd, shell=True).returncode
 
@@ -46,19 +66,19 @@ def list_files(root: Path) -> List[Dict[str, Any]]:
         return out
     for p in sorted(root.rglob("*")):
         if p.is_file():
+            stat = p.stat()
             out.append({
                 "path": str(p.resolve()),
                 "rel": str(p.relative_to(root)),
-                "bytes": p.stat().st_size,
+                "bytes": stat.st_size,
                 "sha256": sha256_file(p),
-                "mtime_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(p.stat().st_mtime)),
+                "mtime_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime)),
             })
     return out
 
-# Load artifacts
-
+# --- Artifact Load --------------------------------------------------
 if not ARTIFACTS.exists():
-    raise SystemExit("artifacts.json not found. Run Steps 6–8 first.")
+    raise SystemExit("artifacts.json not found. Run training steps first.")
 
 registry = json.loads(ARTIFACTS.read_text(encoding="utf-8"))
 runs = registry.get("runs", [])
@@ -68,13 +88,14 @@ if not runs:
 py = shlex.quote(sys.executable)
 updated = False
 
+# --- Main Loop ------------------------------------------------------
 for entry in runs:
     model_id   = entry["model_id"]
     output_dir = Path(entry["output_root"])
     adapter_dir = Path(entry["adapter_dir"])
     fused_dir   = Path(entry.get("fused_dir") or (output_dir / "fused" / "model"))
 
-    # --- 1) Fuse (optional / idempotent) ---
+    # 1) Fuse --------------------------------------------------------
     if DO_FUSE and not fused_dir.exists():
         fused_dir.parent.mkdir(parents=True, exist_ok=True)
         cmd_fuse = (
@@ -83,10 +104,10 @@ for entry in runs:
             f"--adapter-path {shlex.quote(str(adapter_dir))} "
             f"--save-path {shlex.quote(str(fused_dir))}"
         )
-        print("\n=== FUSE ===")
+        log("=== FUSE ===")
         rc = run_cmd(cmd_fuse)
         if rc != 0:
-            print(f"❌ Fuse failed for {model_id}")
+            log(f"❌ Fuse failed for {model_id}")
             continue
         entry["fused_dir"] = str(fused_dir.resolve())
         entry.setdefault("files", {})["fused"] = list_files(fused_dir)
@@ -96,13 +117,13 @@ for entry in runs:
         entry.setdefault("files", {})["fused"] = list_files(fused_dir)
 
     if not fused_dir.exists():
-        print(f"Skipping quantize for {model_id}: fused_dir missing.")
+        log(f"Skipping quantize for {model_id}: fused_dir missing.")
         continue
 
-    # --- 2) Quantize (idempotent + clean) ---
+    # 2) Quantize ----------------------------------------------------
     q_dir = output_dir / "quantized"
     if q_dir.exists():
-        print(f"Removing pre-existing quantized dir: {q_dir}")
+        log(f"Removing pre-existing quantized dir: {q_dir}")
         shutil.rmtree(q_dir)
 
     cmd_q = (
@@ -111,14 +132,12 @@ for entry in runs:
         f"--mlx-path {shlex.quote(str(q_dir))} "
         f"--q-bits {Q_BITS} "
         f"--q-group-size {Q_GROUP} "
-        f"--dtype {shlex.quote(DTYPE)} "
-        f"-q"
+        f"--dtype {shlex.quote(DTYPE)} -q"
     )
-    print("\n=== QUANTIZE ===")
-    print("JIM",cmd_q)
+    log("=== QUANTIZE ===")
     rc = run_cmd(cmd_q)
     if rc != 0:
-        print(f"❌ Quantize failed for {model_id}")
+        log(f"❌ Quantize failed for {model_id}")
         continue
 
     entry["quantized_dir"] = str(q_dir.resolve())
@@ -127,19 +146,19 @@ for entry in runs:
     entry.setdefault("files", {})["quantized"] = list_files(q_dir)
     updated = True
 
-# Save updated artifacts
+# --- Save Updated Artifacts ----------------------------------------
 if updated:
     registry["updated_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     ARTIFACTS.write_text(json.dumps(registry, indent=2), encoding="utf-8")
 
-# Summary
-print("\n=== FUSE/QUANTIZE SUMMARY ===")
-print("Wrote:", ARTIFACTS)
+log("=== FUSE/QUANTIZE SUMMARY ===")
+log(f"Wrote: {ARTIFACTS}")
 for entry in registry.get("runs", []):
-    print(f"- {entry['model_id']}")
+    log(f"- {entry['model_id']}")
     if "fused_dir" in entry:
-        print("   fused_dir:    ", entry['fused_dir'], f"({len(entry.get('files',{}).get('fused',[]))} files)")
+        log(f"   fused_dir:    {entry['fused_dir']} "
+            f"({len(entry.get('files',{}).get('fused',[]))} files)")
     if "quantized_dir" in entry:
-        print("   quantized_dir:", entry['quantized_dir'],
-              f"(q{entry.get('quantize_bits')}, group={entry.get('q_group_size')})",
-              f"files={len(entry.get('files',{}).get('quantized',[]))}")
+        log(f"   quantized_dir: {entry['quantized_dir']} "
+            f"(q{entry.get('quantize_bits')}, group={entry.get('q_group_size')}) "
+            f"files={len(entry.get('files',{}).get('quantized',[]))}")

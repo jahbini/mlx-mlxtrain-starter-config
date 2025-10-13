@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """
-Template Script for Pipeline Integration
-----------------------------------------
+999_template.py  —  Pipeline-compliant script skeleton
+-----------------------------------------------------
 
-Use this template when creating a new script for the pipeline.
+Purpose:
+    A minimal boilerplate for new Python pipeline steps.
+    This version adheres exactly to the Celarien/MLX pipeline rules.
 
-Requirements:
-  • All parameters and paths must come from config (default + override).
-  • No command-line arguments allowed.
-  • Deterministic: same input + config → same output.
-  • Fail fast on missing inputs or bad config.
-  • Logs written into <output>/logs/ (step-specific).
+Usage:
+    Invoked only by pipeline_runner.coffee; never directly.
+
+Contract:
+    • All configuration comes from default+override config via load_config().
+    • No CLI args.
+    • Deterministic, self-contained, reproducible.
+    • Writes logs under <output>/logs/.
+    • Exits non-zero on missing inputs or invalid config.
 """
 
 from __future__ import annotations
@@ -18,55 +23,60 @@ import sys, os, json, time
 from pathlib import Path
 from typing import Dict, Any
 
-# --- 1) Load Config ---
+# --- 1) Load Config -------------------------------------------------
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_loader import load_config
 
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
 STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
+PARAMS    = getattr(STEP_CFG, "params", {})
 
-# --- 2) Directories ---
-OUT_DIR = Path(CFG.data.output_dir); OUT_DIR.mkdir(parents=True, exist_ok=True)
-LOG_DIR = OUT_DIR / "logs"; LOG_DIR.mkdir(parents=True, exist_ok=True)
+# --- 2) Resolve Paths ------------------------------------------------
+ROOT      = Path(os.getenv("EXEC", Path(__file__).parent)).resolve()
+OUT_DIR   = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)).resolve()
+LOG_DIR   = OUT_DIR / "logs"
+for d in [OUT_DIR, LOG_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
 
-# Example input/output (replace with actual keys for your step)
-INPUT_FILE  = OUT_DIR / CFG.data.contract        # e.g. data_contract.json
-OUTPUT_FILE = OUT_DIR / f"{STEP_NAME}_output.json"
+INPUT_FILE  = Path(getattr(PARAMS, "input",  OUT_DIR / CFG.data.contract))
+OUTPUT_FILE = Path(getattr(PARAMS, "output", OUT_DIR / f"{STEP_NAME}_output.json"))
 
-# --- 3) Logging Helper ---
+# --- 3) Logging ------------------------------------------------------
 LOG_PATH = LOG_DIR / f"{STEP_NAME}.log"
 def log(msg: str):
     stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     full = f"[{stamp}] {msg}"
     with LOG_PATH.open("a", encoding="utf-8") as f:
         f.write(full + "\n")
-    print(full)
+    print(full, flush=True)
 
-# --- 4) Validate Inputs ---
+# --- 4) Validate Inputs ---------------------------------------------
 if not INPUT_FILE.exists():
     log(f"[FATAL] Missing required input file: {INPUT_FILE}")
     sys.exit(1)
 
-log(f"[INFO] Starting step {STEP_NAME}")
-log(f"[INFO] Using config pipeline step: {STEP_CFG}")
+log(f"[INFO] Starting step '{STEP_NAME}'")
+log(f"[INFO] Using output directory: {OUT_DIR}")
+log(f"[INFO] Step parameters: {json.dumps(PARAMS, indent=2)}")
 
-# --- 5) Core Work (replace with real logic) ---
+# --- 5) Core Logic (replace this section) ----------------------------
 def process_contract(path: Path) -> Dict[str, Any]:
-    """Example: load JSON contract and echo metadata."""
+    """Example: load JSON contract and summarize contents."""
     data = json.loads(path.read_text(encoding="utf-8"))
-    result = {
-        "summary": f"Contract contains {len(data.get('filenames', {}))} files",
+    summary = f"Contract includes {len(data.get('filenames', {}))} items"
+    return {
+        "summary": summary,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
         "git_commit": getattr(CFG.run, "git_commit", "unknown"),
     }
-    return result
 
 result = process_contract(INPUT_FILE)
 
-# --- 6) Save Outputs ---
+# --- 6) Save Outputs -------------------------------------------------
 OUTPUT_FILE.write_text(json.dumps(result, indent=2), encoding="utf-8")
 log(f"[INFO] Wrote output: {OUTPUT_FILE}")
 
-# --- 7) Exit Cleanly ---
-log(f"[INFO] Completed step {STEP_NAME} successfully")
+# --- 7) Clean Exit ---------------------------------------------------
+log(f"[INFO] Completed step '{STEP_NAME}' successfully")
 sys.exit(0)

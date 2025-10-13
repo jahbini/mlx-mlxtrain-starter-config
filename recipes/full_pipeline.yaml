@@ -50,3 +50,30 @@ pipeline:
     snapshot:
       run: scripts/04_snapshot.py
       depends_on: [fuse]
+      
+    extract_md_for_voice:
+      run: scripts/092_extract_md_for_voice.py
+      depends_on: [never]
+      params:
+        input_md: datasets/jim/jim.md
+        valid_fraction: 0.1
+        min_story_words: 40
+
+    crawl_for_voice:
+      run: scripts/091_crawl_for_voice.coffee
+      depends_on: [never]
+      params:
+        base: stjohnsjim.com
+        output_dir: run/data
+        valid_fraction: 0.1
+        min_story_words: 50
+
+    crawl_for_voice_continuation:
+      run: scripts/093_crawl_for_voice_continuation.coffee
+      depends_on: [never]
+      params:
+        base: stjohnsjim.com
+        output_dir: run/data
+        valid_fraction: 0.1
+        min_story_words: 50
+        max_examples_per_story: 6

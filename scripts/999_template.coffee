@@ -1,65 +1,64 @@
 #!/usr/bin/env coffee
 ###
-Template Script for Pipeline Integration
-----------------------------------------
+999_template.coffee — Pipeline-Compliant Step Template
+------------------------------------------------------
 
-Use this template when creating a new script for the pipeline.
-All parameters and paths must come from config (default + override).
-No command-line arguments are allowed.
+Use this template when creating a new CoffeeScript pipeline step.
 
-Inputs:
-  - Defined in config (CFG.data.*, CFG.run.*, etc.)
-Outputs:
-  - Defined in config and written into PWD (never EXEC)
-Logs:
-  - Written into PWD/logs/
-
-Behavior:
-  - Deterministic (same input + config → same output)
-  - Fail fast on missing inputs or invalid config
+Rules:
+  • All parameters and paths come from config (default + override).
+  • No CLI args.
+  • Deterministic: same input + config → same output.
+  • Fail fast on missing inputs or bad config.
+  • Logs written under <output>/logs/.
 ###
 
 fs   = require 'fs'
 path = require 'path'
 
-# --- 1) Load Config ---
-{load_config} = require '../config_loader'
+# --- 1) Load Config -------------------------------------------------
+{ load_config } = require '../config_loader'
 
 CFG       = load_config()
-STEP_NAME = process.env.STEP_NAME or "999_template"
+STEP_NAME = process.env.STEP_NAME or '999_template'
 STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
+PARAMS    = STEP_CFG?.params or {}
 
-# Directories
-outDir = path.resolve CFG.data.output_dir
-logDir = path.join outDir, 'logs'
-fs.mkdirSync outDir, {recursive: true}
-fs.mkdirSync logDir, {recursive: true}
+# --- 2) Resolve Directories ----------------------------------------
+ROOT     = path.resolve process.env.EXEC or path.dirname(__dirname)
+OUT_DIR  = path.resolve PARAMS.output_dir or CFG.data.output_dir
+LOG_DIR  = path.join OUT_DIR, 'logs'
+fs.mkdirSync OUT_DIR, {recursive: true}
+fs.mkdirSync LOG_DIR, {recursive: true}
 
-# Example input/output files from config
-INPUT_FILE  = path.join outDir, CFG.data.contract     # replace with correct key
-OUTPUT_FILE = path.join outDir, 'example_output.json' # replace with correct key
+INPUT_FILE  = path.resolve PARAMS.input or path.join(OUT_DIR, CFG.data.contract)
+OUTPUT_FILE = path.resolve PARAMS.output or path.join(OUT_DIR, "#{STEP_NAME}_output.json")
 
-# --- 2) Logging Helper ---
-logPath = path.join logDir, 'template.log'
+# --- 3) Logging -----------------------------------------------------
+LOG_PATH = path.join LOG_DIR, "#{STEP_NAME}.log"
 log = (msg) ->
-  fs.appendFileSync logPath, msg + '\n', 'utf8'
-  console.log msg
+  stamp = new Date().toISOString().replace('T',' ').replace(/\..+$/,'')
+  line  = "[#{stamp}] #{msg}"
+  fs.appendFileSync LOG_PATH, line + '\n', 'utf8'
+  console.log line
 
-# --- 3) Validate Inputs ---
+# --- 4) Validate Inputs --------------------------------------------
 unless fs.existsSync INPUT_FILE
   log "[FATAL] Missing required input file: #{INPUT_FILE}"
   process.exit 1
 
-log "[INFO] Starting template script"
-log "[INFO] Using config keys from: #{JSON.stringify CFG}"
+log "[INFO] Starting step '#{STEP_NAME}'"
+log "[INFO] Output directory: #{OUT_DIR}"
+log "[INFO] Step parameters: #{JSON.stringify PARAMS, null, 2}"
 
-# --- 4) Core Work (replace with real logic) ---
+# --- 5) Core Logic (replace this section) --------------------------
 processContract = (p) ->
   try
     raw  = fs.readFileSync p, 'utf8'
     data = JSON.parse raw
     result =
-      summary: "Contract contains #{Object.keys(data.filenames or {}).length} files"
+      summary: "Contract includes #{Object.keys(data.filenames or {}).length} items"
+      timestamp: new Date().toISOString()
       git_commit: CFG.run?.git_commit or 'unknown'
     return result
   catch err
@@ -68,10 +67,10 @@ processContract = (p) ->
 
 result = processContract INPUT_FILE
 
-# --- 5) Save Outputs ---
+# --- 6) Save Outputs -----------------------------------------------
 fs.writeFileSync OUTPUT_FILE, JSON.stringify(result, null, 2), 'utf8'
 log "[INFO] Wrote output: #{OUTPUT_FILE}"
 
-# --- 6) Exit Cleanly ---
-log "[INFO] Completed successfully"
+# --- 7) Clean Exit --------------------------------------------------
+log "[INFO] Completed step '#{STEP_NAME}' successfully"
 process.exit 0
