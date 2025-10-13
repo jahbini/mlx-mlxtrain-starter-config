@@ -2,11 +2,12 @@
   pipeline_runner.coffee
   A lightweight Petri-net/DAG recipe runner using your Memo kernel.
 
-  Changes:
-  - Pre-flatten config into PWD/experiment.yaml (base recipe + sub-recipes + override.yaml).
-  - DEBUG mode: per-step behavior.
-      * If any declared input is missing → log paths and EXIT immediately.
-      * If all inputs exist → touch/create declared outputs, mark step done, DO NOT run the script.
+  Changes in this version:
+  - Auto-select interpreter: .py → python, .coffee → coffee
+  - Keep existing STEP_NAME export; add STEP_PARAMS_JSON (optional convenience)
+  - Fix minor log typo (EXEC)
+  - Preserve your DEBUG touch/exit behavior
+  - Keep experiment.yaml pre-flattening + env override merge
 ###
 
 fs        = require 'fs'
@@ -99,15 +100,24 @@ deepMerge = (target, source) ->
 M = new Memo()
 
 # --------------------------------------
-# Spawn a python script, prefixing logs with the step name
+# Spawn a step script based on extension
 # --------------------------------------
-runPythonScript = (stepName, scriptPath, envOverrides={}) ->
+runStepScript = (stepName, scriptPath, envOverrides={}) ->
   new Promise (resolve, reject) ->
-    console.log "▶️  #{stepName}: running #{scriptPath}"
-    proc = spawn("python", [scriptPath], {
+    # choose interpreter by extension
+    interp = null
+    if /\.py$/i.test(scriptPath)
+      interp = 'python'
+    else if /\.coffee$/i.test(scriptPath)
+      interp = 'coffee'
+    else
+      return reject new Error "Unknown script type for #{stepName}: #{scriptPath}"
+
+    console.log "▶️  #{stepName}: running #{interp} #{scriptPath}"
+    proc = spawn(interp, [scriptPath],
       stdio: ['ignore', 'pipe', 'pipe']
       env: Object.assign({}, process.env, envOverrides)
-    })
+    )
     proc.stdout.on 'data', (buf) -> process.stdout.write prefixLines("┆ #{stepName} | ", buf.toString()) + "\n"
     proc.stderr.on 'data', (buf) -> process.stderr.write prefixLines("! #{stepName} | ", buf.toString()) + "\n"
     proc.on 'error', (err) ->
@@ -149,8 +159,6 @@ normalizePipeline = (spec = {"pipeline":[]}  ) ->
     def.depends_on ?= []
     unless Array.isArray(def.depends_on)
       throw new Error "Step '#{name}'.depends_on must be an array"
-    # inputs/outputs are optional; leave as-is so DEBUG can use them
-
   steps
 
 # --------------------------------------
@@ -237,7 +245,6 @@ expandIncludes = (spec, baseDir) ->
     merged = deepMerge merged, sub
   merged
 
-# --- add this helper once ---
 buildEnvOverrides = (prefix = 'CFG_') ->
   out = {}
   for own k, v of process.env when k.indexOf(prefix) is 0
@@ -252,7 +259,6 @@ buildEnvOverrides = (prefix = 'CFG_') ->
     node[parts[parts.length-1]] = val
   out
 
-# --- replace createExperimentYaml with this version ---
 createExperimentYaml = (basePath, overridePath) ->
   banner "🔧 Creating experiment.yaml"
 
@@ -262,11 +268,11 @@ createExperimentYaml = (basePath, overridePath) ->
   baseAbs  = path.resolve(basePath)
   baseDir  = path.dirname(baseAbs)
 
-  defaults = loadYamlSafe(defaultPath)            # 1) global defaults (run/data/eval/etc.)
-  base     = loadYamlSafe(baseAbs)                # 2) recipe
-  base     = expandIncludes(base, baseDir)        #    + sub-recipes/includes
-  override = loadYamlSafe(overridePath)           # 3) local override.yaml
-  envOv    = buildEnvOverrides('CFG_')            # 4) CFG_* environment
+  defaults = loadYamlSafe(defaultPath)     # 1) global defaults
+  base     = loadYamlSafe(baseAbs)         # 2) recipe
+  base     = expandIncludes(base, baseDir) #    + sub-recipes/includes
+  override = loadYamlSafe(overridePath)    # 3) local override.yaml
+  envOv    = buildEnvOverrides('CFG_')     # 4) CFG_* environment
 
   # precedence: defaults < recipe(+includes) < override.yaml < env
   merged = deepMerge {}, defaults
@@ -274,7 +280,6 @@ createExperimentYaml = (basePath, overridePath) ->
   merged = deepMerge merged, override
   merged = deepMerge merged, envOv
 
-  # tiny sanity signal (optional)
   if not (merged?.run? and merged.run.output_dir?)
     console.warn "⚠️  run.output_dir missing after merge; check defaults/override."
 
@@ -317,13 +322,10 @@ debugHandleStep = (stepName, def) ->
     console.error "Exiting due to DEBUG missing inputs."
     process.exit(0)
 
-  # All inputs exist → touch outputs and mark as done
   for f in outs
-    # treat trailing slash as directory; otherwise create file
     if /[\/\\]$/.test(f)
       DEBUG_TOUCH_DIR(f)
     else
-      # crude heuristic: if it has an extension, treat as file; else still create dir if ends with '/'
       if path.extname(f) then DEBUG_TOUCH_FILE(f) else DEBUG_TOUCH_DIR(f)
 
   console.log "🐞 DEBUG: step '#{stepName}' outputs touched; skipping script."
@@ -340,7 +342,7 @@ main = ->
   DEBUG      = !!(process.env.DEBUG? and String(process.env.DEBUG).toLowerCase() in ['1','true','yes'])
 
   console.log "CWD:", process.cwd()
-  console.log "EXEC", process.env.XEC
+  console.log "EXEC:", process.env.EXEC
   banner "Recipe (base): #{baseRecipe}"
 
   # Pre-flatten experiment config
@@ -363,16 +365,21 @@ main = ->
     do (name, def) ->
       fire = ->
         if DEBUG
-          # Per-step DEBUG: check inputs; if ok, touch outputs; do not spawn
           return debugHandleStep(name, def)
 
-        runPythonScript(name, process.env.EXEC + "/" + def.run, { CFG_OVERRIDE: expPath, STEP_NAME: name })
-          .then ->
-            M.saveThis "done:#{name}", true
-          .catch (err) ->
-            console.error "! #{name}: step failed, continuing"
-            console.error err.stack or err
-            M.saveThis "done:#{name}", false
+        # Optional convenience: pass step params as JSON (scripts may ignore)
+        stepParams = JSON.stringify(def.params ? {})
+
+        runStepScript(name, process.env.EXEC + "/" + def.run,
+          CFG_OVERRIDE: expPath
+          STEP_NAME: name
+          STEP_PARAMS_JSON: stepParams
+        ).then ->
+          M.saveThis "done:#{name}", true
+        .catch (err) ->
+          console.error "! #{name}: step failed, continuing"
+          console.error err.stack or err
+          M.saveThis "done:#{name}", false
 
       if def.depends_on.length is 0
         console.log "▶️ starting root step #{name}"

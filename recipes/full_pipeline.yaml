@@ -80,7 +80,7 @@ pipeline:
 
     extract_keywords_kag:
       run: scripts/043_extract_keywords_kag.coffee
-      depends_on: [prepare_outmd_kag]
+      depends_on: [never]
       params:
         input_jsonl: out_kag.jsonl
         output_jsonl: out_kag_keywords.jsonl
