@@ -23,7 +23,7 @@ pipeline:
       depends_on: []
       params:
         # Path to the source markdown file (relative to dataset dir)
-        input_md: jim.md
+        input_md: your.md
 
         # Model to use for in-process generation
         model: microsoft/Phi-3-mini-4k-instruct
@@ -46,19 +46,19 @@ pipeline:
       depends_on: [oracle_kag]
       params:
         # Reuse outputs of oracle_kag
-        input_md: jim.md
+        input_md: your.md
         model: microsoft/Phi-3-mini-4k-instruct
         output_dir: eval_out
         num_tags: 0    # Skip generation, just rebuild index
 kag_index:
         # Reuse outputs of oracle_kag
-        input_md: jim.md
+        input_md: your.md
         model: microsoft/Phi-3-mini-4k-instruct
         output_dir: eval_out
         num_tags: 0    # Skip generation, just rebuild index
 oracle_kag:
         # Path to the source markdown file (relative to dataset dir)
-        input_md: jim.md
+        input_md: your.md
 
         # Model to use for in-process generation
         model: microsoft/Phi-3-mini-4k-instruct

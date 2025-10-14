@@ -39,7 +39,7 @@ log = (msg) ->
   console.log line
 
 # --- 3) Parameters ---
-INPUT_MD        = path.resolve PARAMS.input_md or 'jim.md'
+INPUT_MD        = path.resolve PARAMS.input_md or 'your.md'
 SEED            = parseInt PARAMS.seed or CFG.run?.seed or 42
 VALID_FRAC      = parseFloat PARAMS.valid_fraction or CFG.web?.valid_fraction or 0.1
 MIN_STORY_WORDS = parseInt PARAMS.min_story_words or CFG.web?.min_story_words or 50

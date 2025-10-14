@@ -57,7 +57,7 @@ LOCATION_WORDS =
   sky:       /\b(sky|cloud|sun|moon|star|wind|rain)\b/i
 
 CHARACTER_WORDS =
-  jim:       /\b(jim|st.? john.?s jim)\b/i
+  your:       /\b(your|st.? john.?s your)\b/i
   friend:    /\b(friend|buddy|pal|companion|stranger)\b/i
   woman:     /\b(woman|lady|girl|mother|daughter|queen)\b/i
   man:       /\b(man|boy|father|son|king)\b/i

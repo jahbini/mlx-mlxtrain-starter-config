@@ -17,9 +17,6 @@ CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
 STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
 
-print("JIM",STEP_NAME)
-print("and",STEP_CFG)
-print("and finally",CFG)
 OUT_DIR       = Path(CFG.run.output_dir)
 LOCKFILE      = OUT_DIR / "requirements.lock"
 MANIFEST_YAML = OUT_DIR / "run_manifest.yaml"

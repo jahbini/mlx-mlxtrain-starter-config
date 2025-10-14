@@ -41,7 +41,7 @@ pipeline:
       run: scripts/81_train_sft.py
       depends_on: [never]
 
-    chat_jim:
-      run: scripts/chat_jim.py
+    chat:
+      run: scripts/chat.py
       depends_on: [never]
 

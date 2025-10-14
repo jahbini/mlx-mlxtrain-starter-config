@@ -12,7 +12,7 @@ This script:
   5. Writes a unified story_hashtags.jsonl for downstream dataset builders
 
 Inputs:
-  jim.md (or other Markdown file path from cfg["oracle_kag"]["input_md"])
+  your.md (or other Markdown file path from cfg["oracle_kag"]["input_md"])
 
 Outputs:
   stories_out/
@@ -24,7 +24,7 @@ Config integration:
 
   oracle_kag:
     model: microsoft/Phi-3-mini-4k-instruct
-    input_md: jim.md
+    input_md: your.md
     prompts:
       emotional: "List the {num_tags} most important emotions in the story."
     num_tags: 10
@@ -63,7 +63,7 @@ os.chdir(ROOT)
 
 # --- MODEL AND INPUT SETTINGS ---
 MODEL_ID     = getattr(PARAMS, "model", CFG.model)
-INPUT_MD     = Path(getattr(PARAMS, "input_md", "jim.md")).resolve()
+INPUT_MD     = Path(getattr(PARAMS, "input_md", "your.md")).resolve()
 PROMPT       = getattr(PARAMS, "prompt_template",
                        "List {num_tags} emotional or archetypal themes present in this story:")
 NUM_TAGS     = int(getattr(PARAMS, "num_tags", 10))

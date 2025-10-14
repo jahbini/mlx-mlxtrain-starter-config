@@ -1,4 +1,4 @@
-# stjohns-jim-llm: Local fine-tuning stack for story-style LLMs on Mac
+# llm: Local fine-tuning stack for story-style LLMs on Mac
 
 # 🗂️ Folder Structure:
 # .
@@ -20,7 +20,7 @@ Fine-tunes story-style data using mlx-lm on Mac (Metal).
 Inputs:
     run/data/out_instruct.jsonl   (Alpaca-style JSONL)
 Outputs:
-    run/phi3-jim-mlx/ (fine-tuned model + tokenizer)
+    run/phi3-your-mlx/ (fine-tuned model + tokenizer)
 
 Notes:
 - Uses mlx-lm for Apple-native training (Metal backend).
@@ -45,14 +45,14 @@ try:
     CFG = load_config()
     MODEL_NAME  = getattr(CFG.model, "base", "microsoft/Phi-3-mini-4k-instruct")
     DATA_PATH   = Path(CFG.data.output_dir) / "out_instruct.jsonl"
-    OUTPUT_DIR  = Path(CFG.run.output_dir) / "phi3-jim-mlx"
+    OUTPUT_DIR  = Path(CFG.run.output_dir) / "phi3-your-mlx"
     EPOCHS      = getattr(CFG.train, "epochs", 5)
     MAX_LEN     = getattr(CFG.train, "max_seq_length", 5120)
     BATCH_SIZE  = getattr(CFG.train, "batch_size", 1)
 except Exception:
     MODEL_NAME = "microsoft/Phi-3-mini-4k-instruct"
     DATA_PATH  = Path("./run/data/out_instruct.jsonl")
-    OUTPUT_DIR = Path("./phi3-jim-mlx")
+    OUTPUT_DIR = Path("./phi3-your-mlx")
     EPOCHS     = 5
     MAX_LEN    = 512
     BATCH_SIZE = 1

@@ -4,12 +4,12 @@
 ----------------------------------------
 STEP — Prepare Markdown Stories for KAG Fine-Tuning
 
-Converts jim.md (Markdown stories) into KAG-style JSONL:
+Converts your.md (Markdown stories) into KAG-style JSONL:
 Each entry has:
     { "prompt": "...", "response": "..." }
 
 Inputs:
-    jim.md   – Markdown with "# " headers separating stories
+    your.md   – Markdown with "# " headers separating stories
 Outputs:
     run/data/out_kag.jsonl
 ###
@@ -29,7 +29,7 @@ PARAMS    = STEP_CFG.params or {}
 # --- 2) Paths ---
 DATA_DIR = path.resolve PARAMS.output_dir or CFG.data.output_dir
 LOG_DIR  = path.join DATA_DIR, 'logs'
-INPUT_MD = PARAMS.input_md or CFG.data.stories or 'jim_stories/jim.md'
+INPUT_MD = PARAMS.input_md or CFG.data.stories or 'your/your.md'
 OUTPUT_JSONL = path.join DATA_DIR, (PARAMS.output_jsonl or 'out_kag.jsonl')
 
 fs.mkdirSync DATA_DIR, {recursive: true}

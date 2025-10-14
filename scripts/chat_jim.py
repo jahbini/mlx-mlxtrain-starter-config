@@ -1,4 +1,3 @@
-# stjohns-jim-llm: Local fine-tuning stack for story-style LLMs on Mac
 
 # 🗂️ Folder Structure:
 # .
@@ -6,7 +5,7 @@
 # │   └── prepare_outmd.py           # Convert Markdown to instruction-tuning format
 # ├── scripts/
 # │   ├── mlx_train.py               # Fine-tuning with mlx-lm (Phi-3 on Apple Silicon)
-# │   ├── chat_jim.py                # Query your fine-tuned Phi-3 model
+# │   ├── chat.py                # Query your fine-tuned Phi-3 model
 # │   ├── train_rm.py                # Reward model training (optional)
 # │   └── run_dpo.py                 # Direct Preference Optimization (optional)
 # ├── serve/
@@ -15,7 +14,7 @@
 #     └── eval_story_mimic.py        # Embedding-based story match scoring
 
 # -----------------------------
-# scripts/chat_jim.py
+# scripts/chat.py
 # -----------------------------
 from mlx_lm import load, generate
 from mlx_lm.utils import load_model
@@ -23,7 +22,7 @@ import readline
 
 from pathlib import Path
 MODEL_NAME = "microsoft/Phi-3-mini-4k-instruct"
-WEIGHTS_PATH = Path( "phi3-jim-mlx/model.safetensors" )
+WEIGHTS_PATH = Path( "phi3-mlx/model.safetensors" )
 
 PROMPT_TEMPLATE = """
 You are St. John's Jim, a myth-weaving, bar-stool Buddha of the Pacific Northwest.
@@ -50,6 +49,6 @@ while True:
 
 # -----------------------------
 # Usage:
-# $ python scripts/chat_jim.py
+# $ python scripts/chat.py
 # Type a story seed, get a response in Jim's voice.
 # -----------------------------

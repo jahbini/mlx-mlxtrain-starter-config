@@ -113,7 +113,7 @@ ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 df = pd.read_csv(EXPERIMENTS_CSV)
 
 for i, row in df.iterrows():
-    print("JIM",row)
+    
     base = row.get("model_id", "").strip()
     adapter = row.get("adapter_path", "").strip()
     artifact_label = ""
