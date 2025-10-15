@@ -87,6 +87,7 @@ prefixLines = (pfx, s) -> (s ? '').split(/\r?\n/).map((l)-> (pfx + l)).join("\n"
 isPlainObject = (o) -> Object.prototype.toString.call(o) is '[object Object]'
 deepMerge = (target, source) ->
   return target unless source?
+  console.log "Merging",target," and ",source
   for own k, v of source
     if isPlainObject(v) and isPlainObject(target[k])
       target[k] = deepMerge Object.assign({}, target[k]), v
@@ -270,7 +271,8 @@ createExperimentYaml = (basePath, overridePath) ->
 
   defaults = loadYamlSafe(defaultPath)     # 1) global defaults
   base     = loadYamlSafe(baseAbs)         # 2) recipe
-  base     = expandIncludes(base, baseDir) #    + sub-recipes/includes
+  console.log "BAD??", basePath, base
+  #base     = expandIncludes(base, baseDir) #    + sub-recipes/includes
   override = loadYamlSafe(overridePath)    # 3) local override.yaml
   envOv    = buildEnvOverrides('CFG_')     # 4) CFG_* environment
 
@@ -336,8 +338,7 @@ debugHandleStep = (stepName, def) ->
 # --------------------------------------
 main = ->
   ensureSingleInstance()
-
-  baseRecipe = process.argv[2] ? 'recipes/full_pipeline.yaml'
+  baseRecipe = process.argv[2] ? path.join(process.env.EXEC,'recipes/full_pipeline.yaml')
   dotOut     = process.env.DOT_OUT ? process.argv[3] ? null
   DEBUG      = !!(process.env.DEBUG? and String(process.env.DEBUG).toLowerCase() in ['1','true','yes'])
 
