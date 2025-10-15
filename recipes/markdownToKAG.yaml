@@ -50,29 +50,7 @@ pipeline:
         model: microsoft/Phi-3-mini-4k-instruct
         output_dir: eval_out
         num_tags: 0    # Skip generation, just rebuild index
-kag_index:
-        # Reuse outputs of oracle_kag
-        input_md: jim.md
-        model: microsoft/Phi-3-mini-4k-instruct
-        output_dir: eval_out
-        num_tags: 0    # Skip generation, just rebuild index
-oracle_kag:
-        # Path to the source markdown file (relative to dataset dir)
-        input_md: jim.md
 
-        # Model to use for in-process generation
-        model: microsoft/Phi-3-mini-4k-instruct
 
-        # Output base directory (usually auto-set by pipeline_runner)
-        output_dir: eval_out
-
-        # Prompt template for tag generation
-        prompt_template: "List {num_tags} emotional or archetypal themes present in this story:"
-
-        # Generation and filtering settings
-        num_tags: 10
-        max_tokens: 200
-        top_n: 15
-        min_global: 2
 
 

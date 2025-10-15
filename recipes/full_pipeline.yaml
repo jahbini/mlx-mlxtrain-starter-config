@@ -84,3 +84,11 @@ pipeline:
       params:
         input_jsonl: out_kag.jsonl
         output_jsonl: out_kag_keywords.jsonl
+
+    analyze_kag_stats:
+      run: scripts/044_analyze_kag_stats.coffee
+      depends_on: [extract_keywords_kag]
+      params:
+        input_jsonl: out_kag_keywords.jsonl
+        output_stats: kag_tag_stats.json
+        output_csv: kag_tag_matrix.csv

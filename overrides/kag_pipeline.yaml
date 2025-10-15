@@ -1,0 +1,70 @@
+i# override.yaml — Use local Markdown + KAG data as training input
+# Keeps the full downstream pipeline active (train, fuse, quantize, etc.)
+
+run:
+  model: microsoft/Phi-3-mini-4k-instruct
+  data_dir: run/data
+  eval_dir: run/eval_out
+  artifacts: run/artifacts.json
+  experiments: run/experiments.csv
+  epochs: 3
+  batch_size: 8
+
+pipeline:
+  steps:
+    # --- Replace dataset preparation only ---
+    fetch_hf_dataset:
+      skip: true
+    prepare_prompts:
+      skip: true
+    prepare_experiments:
+      skip: true
+    prepare_data:
+      skip: true
+
+    # --- Markdown → KAG preprocessing path ---
+    prepare_outmd_kag:
+      run: scripts/042_prepare_outmd_kag.coffee
+      depends_on: [manifest]
+      params:
+        input_md: datasets/jim/jim.md
+        output_dir: run/data
+        output_jsonl: out_kag.jsonl
+
+    extract_keywords_kag:
+      run: scripts/043_extract_keywords_kag.coffee
+      depends_on: [prepare_outmd_kag]
+      params:
+        input_jsonl: out_kag.jsonl
+        output_jsonl: out_kag_keywords.jsonl
+
+    analyze_kag_stats:
+      run: scripts/044_analyze_kag_stats.coffee
+      depends_on: [extract_keywords_kag]
+      params:
+        input_jsonl: out_kag_keywords.jsonl
+        output_stats: kag_tag_stats.json
+        output_csv: kag_tag_matrix.csv
+
+    # --- Continue full training pipeline as usual ---
+    register:
+      run: scripts/031_register.py
+      depends_on: [analyze_kag_stats]
+      params:
+        dataset_jsonl: out_kag_keywords.jsonl    # this overrides HF data source
+
+    train:
+      run: scripts/03_train.py
+      depends_on: [register]
+
+    fuse:
+      run: scripts/032_fuse.py
+      depends_on: [train]
+
+    snapshot:
+      run: scripts/04_snapshot.py
+      depends_on: [fuse]
+
+    examination:
+      run: scripts/042_examination.py
+      depends_on: [snapshot]
