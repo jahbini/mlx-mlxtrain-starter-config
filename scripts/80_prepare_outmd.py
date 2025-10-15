@@ -1,10 +1,10 @@
 # data/prepare_outmd.py
 """
 STEP — Prepare Markdown Stories for Instruction Tuning
-Converts jim.md into Alpaca-style JSONL for fine-tuning.
+Converts your.md into Alpaca-style JSONL for fine-tuning.
 
 Inputs:
-    jim.md (markdown with story sections, # headers separate stories)
+    your.md (markdown with story sections, # headers separate stories)
 Outputs:
     run/data/out_instruct.jsonl
 """
@@ -19,11 +19,11 @@ try:
     from config_loader import load_config
     CFG = load_config()
     DATA_DIR = Path(CFG.data.output_dir)
-    INPUT_MD = Path(CFG.data.stories) if hasattr(CFG.data, "stories") else Path("jim_stories/jim.md")
+    INPUT_MD = Path(CFG.data.stories) if hasattr(CFG.data, "stories") else Path("your/your.md")
     OUTPUT_JSONL = DATA_DIR / "out_instruct.jsonl"
 except Exception:
     # fallback for standalone runs
-    INPUT_MD = Path("../jim_stories/jim.md")
+    INPUT_MD = Path("../your/your.md")
     OUTPUT_JSONL = Path("./run/data/out_instruct.jsonl")
     OUTPUT_JSONL.parent.mkdir(parents=True, exist_ok=True)
 
