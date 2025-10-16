@@ -15,6 +15,7 @@ path      = require 'path'
 yaml      = require 'js-yaml'
 { spawn } = require 'child_process'
 { execSync } = require 'child_process'
+EXEC = process.env.EXEC
 
 # --------------------------------------
 # Memo kernel (kept consistent with your version)
@@ -259,16 +260,13 @@ buildEnvOverrides = (prefix = 'CFG_') ->
     node[parts[parts.length-1]] = val
   out
 
-createExperimentYaml = (basePath, overridePath) ->
+createExperimentYaml = (basePath,defaultConfig, overridePath) ->
   banner "🔧 Creating experiment.yaml"
-
-  EXEC = process.env.EXEC ? process.cwd()
-  defaultPath = path.join(EXEC, 'config', 'default.yaml')
 
   baseAbs  = path.resolve(basePath)
   baseDir  = path.dirname(baseAbs)
 
-  defaults = loadYamlSafe(defaultPath)     # 1) global defaults
+  defaults = loadYamlSafe(defaultConfig)     # 1) global defaults
   base     = loadYamlSafe(baseAbs)         # 2) recipe
   base     = expandIncludes(base, baseDir) #    + sub-recipes/includes
   override = loadYamlSafe(overridePath)    # 3) local override.yaml
@@ -276,9 +274,16 @@ createExperimentYaml = (basePath, overridePath) ->
 
   # precedence: defaults < recipe(+includes) < override.yaml < env
   merged = deepMerge {}, defaults
+  console.log "JIM default.yaml",merged
+  console.log "Jim steps 1", merged.pipeline?.steps
   merged = deepMerge merged, base
+  console.log "JIM merged with recipe",merged
+  console.log "Jim steps 2", merged.pipeline?.steps
   merged = deepMerge merged, override
-  merged = deepMerge merged, envOv
+  console.log 'JIM OVERRIDE.YAML' ,override
+  console.log "JIM merged with local override",merged
+  console.log "Jim steps 3", merged.pipeline?.steps
+  #merged = deepMerge merged, envOv
 
   if not (merged?.run? and merged.run.output_dir?)
     console.warn "⚠️  run.output_dir missing after merge; check defaults/override."
@@ -337,7 +342,7 @@ debugHandleStep = (stepName, def) ->
 main = ->
   ensureSingleInstance()
 
-  baseRecipe = process.argv[2] ? 'recipes/full_pipeline.yaml'
+  baseRecipe = process.argv[2] ? path(EXEC,'recipes/full_pipeline.yaml')
   dotOut     = process.env.DOT_OUT ? process.argv[3] ? null
   DEBUG      = !!(process.env.DEBUG? and String(process.env.DEBUG).toLowerCase() in ['1','true','yes'])
 
@@ -347,7 +352,8 @@ main = ->
 
   # Pre-flatten experiment config
   overridePath = path.join(process.cwd(), 'override.yaml')
-  expPath = createExperimentYaml(baseRecipe, overridePath)
+  defaultConfig = path.join(EXEC, 'config', 'default.yaml')
+  expPath = createExperimentYaml(baseRecipe,defaultConfig, overridePath)
 
   # Load flattened spec
   spec = loadYamlSafe(expPath)

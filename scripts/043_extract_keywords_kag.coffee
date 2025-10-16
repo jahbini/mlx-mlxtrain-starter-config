@@ -20,7 +20,7 @@ os   = require 'os'
 process.env.NODE_NO_WARNINGS = 1
 
 # --- Config loader ---
-{load_config} = require '../config_loader'
+{load_config} = require './config_loader'
 CFG       = load_config()
 STEP_NAME = process.env.STEP_NAME or 'extract_keywords_kag'
 STEP_CFG  = CFG.pipeline.steps?[STEP_NAME] or {}
