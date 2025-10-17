@@ -116,7 +116,9 @@ summarize_lengths = (p, field) ->
 stories = extract_md_stories INPUT_MD
 examples = []
 
-for story_id, [title,text] of stories.entries()
+for k,story of stories
+  [title,text] = story
+  continue unless text
   continue if text.split(/\s+/).length < MIN_STORY_WORDS
   paragraphs = split_paragraphs text
   for i,para of paragraphs
@@ -124,7 +126,7 @@ for story_id, [title,text] of stories.entries()
     prompt = "#{para}\n\n"
     examples.push
       meta:
-        doc_id: "story-#{story_id}"
+        doc_id: "story-#{k}"
         title: title
         paragraph_index: n
       prompt: prompt
@@ -141,10 +143,9 @@ valid = examples.slice 0, n_valid
 train = examples.slice n_valid
 
 write_jsonl = (filename, arr) ->
-  out = fs.createWriteStream filename, encoding:'utf8'
-  for ex in arr
-    out.write JSON.stringify(ex) + '\n'
-  out.end()
+  data = arr.map((ex) -> JSON.stringify(ex)).join('\n') + '\n'
+  fs.writeFileSync filename, data, 'utf8'
+  return
 
 write_jsonl TRAIN_JSONL, train
 write_jsonl VALID_JSONL, valid
