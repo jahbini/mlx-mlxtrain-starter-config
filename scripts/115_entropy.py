@@ -30,20 +30,20 @@ from config_loader import load_config
 # --- STEP-AWARE CONFIG ---
 CFG       = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
-PARAMS    = getattr(STEP_CFG, "params", {})
+STEP_CFG  = CFG[STEP_NAME]
+PARAMS    = STEP_CFG
 
-EVAL_DIR  = Path(getattr(PARAMS, "eval_output_dir", CFG.eval.output_dir)); EVAL_DIR.mkdir(exist_ok=True)
-RUN_DIR   = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
+EVAL_DIR  = Path( CFG.eval.output_dir); EVAL_DIR.mkdir(exist_ok=True)
+RUN_DIR   = Path( CFG.run.output_dir)
 
-ARTIFACTS     = RUN_DIR / getattr(PARAMS, "artifacts", CFG.data.artifacts)
-POLICY_JSON   = EVAL_DIR / getattr(PARAMS, "policy", CFG.eval.policy)
-GEN_JSONL     = EVAL_DIR / (getattr(PARAMS, "generations", CFG.eval.generations) + ".jsonl")
+ARTIFACTS     = RUN_DIR / CFG.data.artifacts)
+POLICY_JSON   = EVAL_DIR / CFG.eval.policy)
+GEN_JSONL     = EVAL_DIR / (CFG.eval.generations) + ".jsonl")
 
 TOK_PATH      = EVAL_DIR / "entropy_tokens.jsonl"
 SUM_PATH      = EVAL_DIR / "entropy_summary.csv"
 
-MAX_NEW   = int(getattr(PARAMS, "max_new_tokens", 128))
+MAX_NEW   = int(STEP_CFG.max_new_tokens)
 STOP_STRS = getattr(PARAMS, "stop_strings", ["\n\n", "==="])
 
 # --------------------------

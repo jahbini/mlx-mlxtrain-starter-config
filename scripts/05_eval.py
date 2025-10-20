@@ -20,16 +20,16 @@ from config_loader import load_config
 # --- STEP-AWARE CONFIG ---
 CFG       = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
-PARAMS    = getattr(STEP_CFG, "params", {})
+STEP_CFG  = CFG[STEP_NAME]
+PARAMS    = STEP_CFG
 
-EVAL_DIR  = Path(getattr(PARAMS, "eval_output_dir", CFG.eval.output_dir)); EVAL_DIR.mkdir(exist_ok=True)
-RUN_DIR   = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
+EVAL_DIR  = Path(CFG.eval.output_dir)); EVAL_DIR.mkdir(exist_ok=True)
+RUN_DIR   = Path(CFG.run.output_dir))
 
-ARTIFACTS = RUN_DIR / getattr(PARAMS, "artifacts", CFG.data.artifacts)
-ABL_JSONL = EVAL_DIR / (getattr(PARAMS, "ablations", CFG.eval.ablations) + ".jsonl")
-REPORT_MD = EVAL_DIR / getattr(PARAMS, "report", CFG.eval.report)
-POLICY_JS = EVAL_DIR / getattr(PARAMS, "policy", CFG.eval.policy)
+ARTIFACTS = RUN_DIR / CFG.data.artifacts
+ABL_JSONL = EVAL_DIR / CFG.eval.ablations + ".jsonl"
+REPORT_MD = EVAL_DIR / CFG.eval.report
+POLICY_JS = EVAL_DIR / CFG.eval.policy
 
 if not ABL_JSONL.exists():
     raise SystemExit("Missing eval_out/ablations.jsonl (run Step 12).")

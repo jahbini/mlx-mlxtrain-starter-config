@@ -22,13 +22,14 @@ from config_loader import load_config
 
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
-PARAMS    = getattr(STEP_CFG, "params", {})
+STEP_CFG  = CFG[STEP_NAME]
+PARAMS    = STEP_CFG
 
 # --- Directories ----------------------------------------------------
-RUN_DIR   = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
-ARTIFACTS = RUN_DIR / getattr(PARAMS, "artifacts", CFG.data.artifacts)
-LOG_DIR   = RUN_DIR / "logs"
+RUN_DIR   = Path( CFG.run.output_dir)
+DATA_DIR = Path( CFG.run.data_dir)
+ARTIFACTS = DATA_DIR / CFG.run.artifacts
+LOG_DIR   = DATA_DIR / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_PATH  = LOG_DIR / f"{STEP_NAME}.log"
 
@@ -40,11 +41,11 @@ def log(msg: str):
     print(line, flush=True)
 
 # --- Controls -------------------------------------------------------
-DO_FUSE = PARAMS.get("do_fuse", True)
-Q_BITS  = int(PARAMS.get("q_bits", 4))
-Q_GROUP = int(PARAMS.get("q_group", 64))
-DTYPE   = PARAMS.get("dtype", getattr(CFG.model, "dtype", "float16"))
-DRY_RUN = bool(PARAMS.get("dry_run", False))
+DO_FUSE = STEP_CFG["do_fuse"]
+Q_BITS  = int(STEP_CFG["q_bits"])
+Q_GROUP = int(STEP_CFG["q_group"])
+DTYPE   = STEP_CFG["dtype"]
+DRY_RUN = bool(STEP_CFG["dry_run"])
 
 def run_cmd(cmd: str) -> int:
     log(f"[MLX] {cmd}")

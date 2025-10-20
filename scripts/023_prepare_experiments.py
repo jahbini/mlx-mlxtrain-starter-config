@@ -10,28 +10,28 @@ from config_loader import load_config
 # --- STEP-AWARE CONFIG ---
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
-PARAMS    = getattr(STEP_CFG, "params", {})
+STEP_CFG  = CFG[STEP_NAME]
+PARAMS    = STEP_CFG
 
 # Resolve paths
-OUT_DIR  = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)); OUT_DIR.mkdir(exist_ok=True)
-CONTRACT = OUT_DIR / getattr(PARAMS, "contract", CFG.data.contract)
-CATALOG  = OUT_DIR / getattr(PARAMS, "catalog", CFG.data.catalog)
-POLICY   = OUT_DIR / getattr(PARAMS, "policy", CFG.data.policy)
-REPORT   = OUT_DIR / getattr(PARAMS, "report", CFG.data.report)
+DATA_DIR  = Path(CFG.run.data_dir); DATA_DIR.mkdir(exist_ok=True)
+CONTRACT = DATA_DIR / CFG.run.contract
+CATALOG  = DATA_DIR / CFG.run.catalog
+POLICY   = DATA_DIR / CFG.run.policy
+REPORT   = DATA_DIR / CFG.run.report
 
-RUN_DIR  = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
-EXPERIMENTS_CSV = RUN_DIR / getattr(PARAMS, "experiments_csv", CFG.data.experiments_csv)
+RUN_DIR  = Path(CFG.run.output_dir)
+EXPERIMENTS_CSV = DATA_DIR / CFG.run.experiments_csv
 
 # ---------- EDITABLE BLOCK (overridable via params) ----------
-EXPERIMENTS      = PARAMS.get("experiments", CFG.experiments)
-EPOCHS           = PARAMS.get("epochs", 1)
-BATCH_SIZE       = PARAMS.get("batch_size", 1)
-GRAD_ACCUM       = PARAMS.get("grad_accum", 8)
-MAX_SEQ_LENGTH   = PARAMS.get("max_seq_length", 512)
-LEARNING_RATE    = PARAMS.get("learning_rate", 2e-4)
-BF16             = PARAMS.get("bf16", True)
-ITERS_OVERRIDE   = PARAMS.get("iters_override", 0)
+EXPERIMENTS      = [ CFG.run.model ]
+EPOCHS           = STEP_CFG["epochs"]
+BATCH_SIZE       = STEP_CFG["batch_size"]
+GRAD_ACCUM       = STEP_CFG["grad_accum"]
+MAX_SEQ_LENGTH   = STEP_CFG["max_seq_length"]
+LEARNING_RATE    = STEP_CFG["learning_rate"]
+BF16             = STEP_CFG["bf16"]
+ITERS_OVERRIDE   = STEP_CFG["iters_override"]
 # ------------------------------------------------------------
 
 def load_contract() -> Dict[str, Any]:
@@ -63,7 +63,7 @@ def resolve_files_from_contract(ct: Dict[str, Any]) -> Dict[str, str]:
 
 def estimate_iters(num_train: int, epochs: int, batch: int, accum: int) -> int:
     steps = max(1, math.ceil((epochs * max(1, num_train)) / max(1, batch * accum)))
-    return max(10000, steps)
+    return max(100, steps)
 
 # 1) Load metadata and counts
 ct = load_contract()
@@ -79,9 +79,11 @@ data_dir = Path(ct["data_dir"])
 rows: List[Dict[str, Any]] = []
 timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-for model_id in EXPERIMENTS:
+
+modelName =  EXPERIMENTS
+for model_id in modelName:
     model_tag = model_id.replace("/", "--")
-    out_root  = RUN_DIR / model_tag
+    out_root  = DATA_DIR / model_tag
     adapter_path = out_root / "adapter"
     logs_dir     = out_root / "logs"
 
@@ -116,6 +118,7 @@ for model_id in EXPERIMENTS:
 
 # 3) Write experiments.csv
 EXPERIMENTS_CSV.parent.mkdir(parents=True, exist_ok=True)
+
 fieldnames = list(rows[0].keys()) if rows else []
 with EXPERIMENTS_CSV.open("w", newline="", encoding="utf-8") as f:
     w = csv.DictWriter(f, fieldnames=fieldnames)

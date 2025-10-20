@@ -1,113 +1,132 @@
+# config/default.yaml
+# Step configuration + script paths for the flat pipeline
+
 run:
+  output_dir: run
+  snapshot_dir: run/snapshots
+  data_dir: run/data
+  eval_dir: eval_out
+  contract: contract.json
+  catalog: catalog.json
+  experiments_csv: experiments.csv
+  artifacts: artifacts.json
+  model: microsoft/Phi-3-mini-4k-instruct
+  format_policy: data/format_policy.json
+  policy: generation_policy.json
+  report: data_report.json
+  fused_dir: run/fused_model
+  generations: generations
+  tokmeta: tokenizer_meta
+
+# ---- Step Definitions ------------------------------------------------------
+
+manifest:
+  run: scripts/00_manifest.py
   seed: 42
-  alt_seed: 7
-  output_dir: "run"              # replaces OUT_DIR
 
-experiments:
-  - microsoft/Phi-3-mini-4k-instruct
-
-paths:                            # replaces *_PATH constants
-  tokenizer: "tokenizer_meta"
-  
-snapshot:
-  output_dir: "snapshots"
-  fused:  "fused/model"
-  quant:  "quantized"
-  max_new:  128
-  seed:  7
-  n_shots:  3
-  min_words:  3
-  retries:  2
-  prompts:
-   - "Tell us who lives in the house of the three gunas."
-   - "Offer a short proverb on patience."
-   - "Give a hopeful saying for a widow."
-
-sanity:
-  prompts:
-   - "Share a saying about luck."
-   - "Offer a short proverb on patience."
-   - "Give a hopeful saying for a widow."
-
-eval:
-  generations: "generations"
-  output_dir: "eval_out"
-  ablations: "ablation_generations"
-  report: "report.md"
-  policy: "generation_policy.json"
-  recreate: "repro.sh"
-  analysis: "eos_analysis"
-  summary: "eos_summary"
-
-entropy:
-  eval_output_dir: "eval_out"
-  
-
-web:
-  base: "stjohnsjim.com"
-  content_id: "bloviation"
-  user_agent: "SJJ-JSONL/voice-continuer/1.0"
-  request_timeout: 20
-  pause_sec: 0.5
-  valid_fraction: 0.2
-  min_story_words: 120              # skip tiny pages
-  min_prompt_words: 100             # prompt lower bound
-  max_prompt_words: 300             # prompt upper bound
-  min_completion_words: 40          # completion lower bound
-  max_completion_words: 160         # completion upper bound
-  max_examples_per_story: 6         # cap examples per story
-  
-data:
-  output_dir: "run/data"              # replaces OUT_DIR
-  experiments_csv: "experiments.csv"
-  artifacts: "artifacts.json"
-  contract: "data_contract.json"
-  policy:   "format_policy.json"
-  catalog:  "data_catalog.json"
-  report:   "data_report.json"
-  hf_dataset: "asuender/motivational-quotes"
-  subset: "quotes"
+fetch_hf_dataset:
+  run: scripts/01_fetch_hf_dataset.py
+  hf_dataset: asuender/motivational-quotes
+  subset: quotes
   mode: "sft"
+  valid_fract: 0.02
+  min_words: 5
+  max_words: 60
+  seed: 42
+
+prepare_prompts:
+  run: scripts/022_prepare_prompts.py
   valid_fraction: 0.02
   min_words: 5
   max_words: 60
-  format:
-    mode: plain            # or sft
-    prompt_key: prompt     # required if mode == sft
-    completion_key: completion
-  split:
-    valid_fraction: 0.02
+  template_name: plain_text_passthrough
+  stop_strings: ["</s>", "###", "Instruction:", "Response:"]
+  use_eos_token: true
 
-model:
-  name: "microsoft/Phi-4-reasoning-plus"
-  dtype: "float16"
-  context_length: 8192
 
-trainer:                          # global defaults
-  epochs: 1
-  batch_size: 1
+prepare_experiments:
+  run: scripts/023_prepare_experiments.py
+  contract: run/data/data_contract.json
+  epochs: 3
+  batch_size: 8
   grad_accum: 8
   max_seq_length: 512
   learning_rate: 0.0002
   bf16: true
-  iters_override: 0               # 0 = auto-calc
+  iters_override: 10 #smoke test limit
 
-sweep:                            # step 6 “experiment matrix”
-  base_models:
-    - "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    # - "mlx-community/phi-2"
-  # Optional per-sweep overrides (fallback to trainer.* when absent)
-  hyperparams: {}
+prepare_data:
+  run: scripts/02_prepare_data.py
 
-crawl:
-  mode: urls               # or files
-  urls:
-    seeds_path: seeds.txt
-    max_pages: 50
-    user_agent: "Mozilla/5.0 (MLX-Voice-Crawl)"
-    timeout: 15
-  files:
-    glob: "source_html/*.html"   # used when mode: files
-  filters:
-    min_words: 5
-    max_words: 6000
+register:
+  run: scripts/031_register.py
+  dataset_jsonl: run/data/train.jsonl
+
+train:
+  run: scripts/03_train.py
+  dry_run: false
+  only_model_id: ""
+  only_row: None
+  steps_per_report: 1000
+  steps_per_eval: 5000
+  val_batches: 1
+
+fuse:
+  run: scripts/032_fuse.py
+  do_fuse: true
+  q_bits: 4
+  q_group: 64
+  dtype: "float16"
+  dry_run: false
+
+snapshot:
+  run: scripts/04_snapshot.py
+  fused: fused/model
+  quant: quantized
+  max_new: 128
+  alt_seed: 7
+  n_shots: 3
+  min_words: 3
+  retries: 2
+  prompts:
+    - "Tell us who lives in the house of the three gunas."
+    - "Offer a short proverb on patience."
+    - "Give a hopeful saying for a widow."
+
+examination:
+  run: scripts/042_examination.py
+  ablations: ablation_generations
+  report: report.md
+  recreate: repro.sh
+  analysis: eos_analysis
+  summary: eos_summary
+  prompts:
+    - "Tell us who lives in the house of the three gunas."
+    - "Offer a short proverb on patience."
+    - "Give a hopeful saying for a widow."
+
+extract_md_for_voice:
+  run: scripts/092_extract_md_for_voice.py
+  input_md: datasets/your.md
+  valid_fraction: 0.1
+  min_story_words: 40
+
+crawl_for_voice:
+  run: scripts/091_crawl_for_voice.coffee
+  base: some_domain.com
+  output_dir: run/data
+  valid_fraction: 0.1
+  min_story_words: 50
+
+crawl_for_voice_continuation:
+  run: scripts/093_crawl_for_voice_continuation.coffee
+  base: some_domain.com
+  output_dir: run/data
+  valid_fraction: 0.1
+  min_story_words: 50
+  max_examples_per_story: 6
+
+extract_keywords_kag:
+  run: scripts/043_extract_keywords_kag.coffee
+  input_jsonl: out_kag.jsonl
+  output_jsonl: out_kag_keywords.jsonl

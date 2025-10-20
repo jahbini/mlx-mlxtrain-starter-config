@@ -8,21 +8,21 @@ from datasets import load_dataset
 # --- STEP-AWARE CONFIG ---
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG = CFG.pipeline.steps[STEP_NAME]
+STEP_CFG = CFG[STEP_NAME]
 PARAMS = getattr(STEP_CFG, "params", {})
 
 # Resolve values (step.params > global.cfg)
-HF_DATASET  = getattr(PARAMS, "hf_dataset", CFG.data.hf_dataset)
-SUBSET      = getattr(PARAMS, "subset", CFG.data.subset)
-MODE        = getattr(PARAMS, "mode", CFG.data.mode)
-VALID_FRACT = getattr(PARAMS, "valid_fraction", CFG.data.valid_fraction)
-MIN_WORDS   = getattr(PARAMS, "min_words", CFG.data.min_words)
-MAX_WORDS   = getattr(PARAMS, "max_words", CFG.data.max_words)
-SEED        = getattr(PARAMS, "seed", CFG.run.seed)
+HF_DATASET  = STEP_CFG.hf_dataset
+SUBSET      = STEP_CFG.subset
+MODE        = STEP_CFG.mode
+VALID_FRACT = STEP_CFG.valid_fract
+MIN_WORDS   = STEP_CFG.min_words
+MAX_WORDS   = STEP_CFG.max_words
+SEED        = STEP_CFG.seed
 
-OUT_DIR = Path(CFG.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
-CONTRACT = OUT_DIR / CFG.data.contract
-CATALOG  = OUT_DIR / CFG.data.catalog
+DATA_DIR = Path(CFG.run.data_dir); DATA_DIR.mkdir(exist_ok=True)
+CONTRACT = DATA_DIR / CFG.run.contract
+CATALOG  = DATA_DIR / CFG.run.catalog
 
 print("Dataset:", HF_DATASET)
 print("Subset:", SUBSET)
@@ -75,12 +75,12 @@ def main():
             for t in texts:
                 f.write(json.dumps({"text": t}, ensure_ascii=False) + "\n")
 
-    train_path = OUT_DIR / "train.jsonl"
-    valid_path = OUT_DIR / "valid.jsonl"
+    train_path = DATA_DIR / "train.jsonl"
+    valid_path = DATA_DIR / "valid.jsonl"
     write_jsonl(train_path, train)
     write_jsonl(valid_path, valid)
 
-    print(f"Wrote {len(train)} train, {len(valid)} valid to {OUT_DIR.resolve()}")
+    print(f"Wrote {len(train)} train, {len(valid)} valid to {DATA_DIR.resolve()}")
 
     # --- Write data_contract.json and data_catalog.json ---
     def count_lines_bytes(p: Path):
@@ -100,7 +100,7 @@ def main():
 
     data_contract = {
         "created_utc": created,
-        "data_dir": str(OUT_DIR.resolve()),
+        "data_dir": str(DATA_DIR.resolve()),
         "filenames": {
             "train": {"chosen": train_path.name, "resolved": str(train_path.resolve())},
             "valid": {"chosen": valid_path.name, "resolved": str(valid_path.resolve())},

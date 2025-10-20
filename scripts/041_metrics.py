@@ -14,19 +14,19 @@ from config_loader import load_config
 # --- STEP-AWARE CONFIG ---
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
-PARAMS    = getattr(STEP_CFG, "params", {})
+STEP_CFG  = CFG[STEP_NAME]
+PARAMS    = STEP_CFG
 
 # Resolve paths (params > global cfg)
-OUT_DIR   = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)); OUT_DIR.mkdir(exist_ok=True)
-EVAL_DIR  = Path(getattr(PARAMS, "eval_output_dir", CFG.eval.output_dir)); EVAL_DIR.mkdir(exist_ok=True)
-RUN_DIR   = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
+OUT_DIR   = Path( CFG.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
+EVAL_DIR  = Path(CFG.eval.output_dir); EVAL_DIR.mkdir(exist_ok=True)
+RUN_DIR   = Path( CFG.run.output_dir)
 
-CONTRACT  = OUT_DIR / getattr(PARAMS, "contract", CFG.data.contract)
-GEN_JSONL = EVAL_DIR / (getattr(PARAMS, "generations", CFG.eval.generations) + ".jsonl")
-GEN_CSV   = EVAL_DIR / (getattr(PARAMS, "generations", CFG.eval.generations) + ".csv")
-OUT_SUM   = EVAL_DIR / (getattr(PARAMS, "summary", CFG.eval.summary) + ".csv")
-OUT_JSON  = EVAL_DIR / (getattr(PARAMS, "analysis", CFG.eval.analysis) + ".json")
+CONTRACT  = OUT_DIR / CFG.data.contract
+GEN_JSONL = EVAL_DIR / CFG.eval.generations + ".jsonl"
+GEN_CSV   = EVAL_DIR / CFG.eval.generations + ".csv"
+OUT_SUM   = EVAL_DIR / CFG.eval.summary + ".csv"
+OUT_JSON  = EVAL_DIR / CFG.eval.analysis + ".json"
 
 # --- Safety checks ---
 if not GEN_JSONL.exists():

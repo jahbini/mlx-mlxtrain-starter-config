@@ -11,22 +11,22 @@ from config_loader import load_config
 # --- STEP-AWARE CONFIG ---
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
-PARAMS    = getattr(STEP_CFG, "params", {})
+STEP_CFG  = CFG[STEP_NAME]
+PARAMS    = STEP_CFG
 
 # Resolve from params > global config
-OUT_DIR = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)); OUT_DIR.mkdir(exist_ok=True)
-RUN_DIR = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
-EXPERIMENTS_CSV = RUN_DIR / getattr(PARAMS, "experiments_csv", CFG.data.experiments_csv)
+OUT_DIR = Path( CFG.run.data_dir); OUT_DIR.mkdir(exist_ok=True)
+EXPERIMENTS_CSV = OUT_DIR / CFG.run.experiments_csv
 
 # ---- Controls (can be overridden by step.params) ----
-DRY_RUN          = PARAMS.get("dry_run", False)
-ONLY_MODEL_ID    = PARAMS.get("only_model_id", "")
-ONLY_ROW         = PARAMS.get("only_row", None)
-STEPS_PER_REPORT = PARAMS.get("steps_per_report", 1000)
-STEPS_PER_EVAL   = PARAMS.get("steps_per_eval", 5000)
-VAL_BATCHES      = PARAMS.get("val_batches", 1)
+DRY_RUN          = STEP_CFG["dry_run"]
+ONLY_MODEL_ID    = STEP_CFG["only_model_id"]
+ONLY_ROW         = STEP_CFG["only_row"]
+STEPS_PER_REPORT = STEP_CFG["steps_per_report"]
+STEPS_PER_EVAL   = STEP_CFG["steps_per_eval"]
+VAL_BATCHES      = STEP_CFG["val_batches"]
 # ------------------------------------------------------
+
 
 def load_rows(path: Path) -> List[Dict[str, Any]]:
     with path.open("r", encoding="utf-8") as f:
@@ -42,7 +42,7 @@ def load_rows(path: Path) -> List[Dict[str, Any]]:
     return rows
 
 def select_rows(rows: List[Dict[str, Any]], only_model: str, only_row_idx: Optional[int]) -> List[Dict[str, Any]]:
-    if only_row_idx is not None:
+    if only_row_idx != "None":
         return [rows[only_row_idx]]
     if only_model:
         return [r for r in rows if r.get("model_id") == only_model]

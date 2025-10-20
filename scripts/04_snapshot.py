@@ -16,27 +16,28 @@ from config_loader import load_config
 
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
+STEP_CFG  = CFG[STEP_NAME]
 
 # --- Config ---
-EXPERIMENTS_CSV = Path(CFG.run.output_dir) / CFG.data.experiments_csv
-PROMPTS = CFG.snapshot.prompts
-SNAPSHOT = Path(CFG.snapshot.output_dir)
-MAX_NEW = CFG.snapshot.max_new
-SEED = CFG.run.alt_seed
-N_SHOTS = CFG.snapshot.n_shots
-MIN_WORDS = CFG.snapshot.min_words
-RETRIES = CFG.snapshot.retries
+EXPERIMENTS_CSV = Path(CFG.run.data_dir) / CFG.run.experiments_csv
+SNAPSHOT = Path(CFG.run.snapshot_dir)
+CONTRACT = Path( CFG.run.data_dir)  / CFG.run.contract
 
-OUT_DIR = Path(CFG.data.output_dir)
+PROMPTS = STEP_CFG.prompts
+MAX_NEW = STEP_CFG.max_new
+SEED = STEP_CFG.alt_seed
+N_SHOTS = STEP_CFG.n_shots
+MIN_WORDS = STEP_CFG.min_words
+RETRIES = STEP_CFG.retries
+
+OUT_DIR = Path(CFG.run.output_dir)
 OUT_DIR.mkdir(exist_ok=True)
-EVAL_DIR = Path(CFG.eval.output_dir)
+EVAL_DIR = Path(CFG.run.eval_dir)
 EVAL_DIR.mkdir(exist_ok=True)
-CONTRACT = OUT_DIR / CFG.data.contract
 
-JSONL_PATH = EVAL_DIR / (CFG.eval.generations + ".jsonl")
-CSV_PATH = EVAL_DIR / (CFG.eval.generations + ".csv")
-TOKMETA = OUT_DIR / (CFG.paths.tokenizer + ".json")
+JSONL_PATH = EVAL_DIR / (CFG.run.generations + ".jsonl")
+CSV_PATH = EVAL_DIR / (CFG.run.generations + ".csv")
+TOKMETA = OUT_DIR / (CFG.run.tokmeta + ".json")
 CUSTOM_STOP = "\n\n"
 MODES = ["default_eos", "no_eos", "custom_stop"]
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")

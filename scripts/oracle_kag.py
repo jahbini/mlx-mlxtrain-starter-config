@@ -54,7 +54,7 @@ start = time.time()
 
 CFG = load_config()
 STEP_NAME = os.environ.get("STEP_NAME", "oracle_kag")
-STEP_CFG = CFG.pipeline.steps.get(STEP_NAME)
+STEP_CFG = CFG[STEP_NAME]
 PARAMS = CFG.oracle_kag
 
 # --- RESOLVE ROOT AND PATHS ---

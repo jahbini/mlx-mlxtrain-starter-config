@@ -1,86 +1,44 @@
-# Config override for the full scripts/ pipeline
+# recipes/full_pipeline.yaml
+# Pure DAG definition for the flat pipeline
 
-# Global config shared by all steps
-run:
-  data_dir: run/data
-  eval_dir: run/eval_out
-  experiments: run/experiments.csv
-  artifacts: run/artifacts.json
-  model: microsoft/Phi-3-mini-4k-instruct
-  epochs: 3
-  batch_size: 8
+manifest: {}
 
-pipeline:
-  steps:
-    manifest:
-      run: scripts/00_manifest.py
+fetch_hf_dataset:
+  depends_on: [manifest]
 
-    fetch_hf_dataset:
-      run: scripts/01_fetch_hf_dataset.py
-      depends_on: [manifest]
+prepare_prompts:
+  depends_on: [fetch_hf_dataset]
 
-    prepare_prompts:
-      run: scripts/022_prepare_prompts.py
-      depends_on: [fetch_hf_dataset]
+prepare_experiments:
+  depends_on: [prepare_prompts]
 
-    prepare_experiments:
-      run: scripts/023_prepare_experiments.py
-      depends_on: [prepare_prompts]
+prepare_data:
+  depends_on: [prepare_experiments]
 
-    prepare_data:
-      run: scripts/02_prepare_data.py
-      depends_on: [prepare_experiments]
+register:
+  depends_on: [prepare_data]
 
-    register:
-      run: scripts/031_register.py
-      depends_on: [prepare_data]
+train:
+  depends_on: [register]
 
-    train:
-      run: scripts/03_train.py
-      depends_on: [register]
+fuse:
+  depends_on: [train]
 
-    fuse:
-      run: scripts/032_fuse.py
-      depends_on: [train]
+snapshot:
+  depends_on: [fuse]
 
-    examination:
-      run: scripts/042_examination.py
-      depends_on: [snapshot]
+examination:
+  depends_on: [snapshot]
 
-    snapshot:
-      run: scripts/04_snapshot.py
-      depends_on: [fuse]
-      
-    extract_md_for_voice:
-      run: scripts/092_extract_md_for_voice.py
-      depends_on: [never]
-      params:
-        input_md: datasets/your.md
-        valid_fraction: 0.1
-        min_story_words: 40
+# --- Optional or disabled entry points ---
+extract_md_for_voice:
+  depends_on: [never]
 
-    crawl_for_voice:
-      run: scripts/091_crawl_for_voice.coffee
-      depends_on: [never]
-      params:
-        base: some_domain.com
-        output_dir: run/data
-        valid_fraction: 0.1
-        min_story_words: 50
+crawl_for_voice:
+  depends_on: [never]
 
-    crawl_for_voice_continuation:
-      run: scripts/093_crawl_for_voice_continuation.coffee
-      depends_on: [never]
-      params:
-        base: some_domain.com
-        output_dir: run/data
-        valid_fraction: 0.1
-        min_story_words: 50
-        max_examples_per_story: 6
+crawl_for_voice_continuation:
+  depends_on: [never]
 
-    extract_keywords_kag:
-      run: scripts/043_extract_keywords_kag.coffee
-      depends_on: [never]
-      params:
-        input_jsonl: out_kag.jsonl
-        output_jsonl: out_kag_keywords.jsonl
+extract_keywords_kag:
+  depends_on: [never]

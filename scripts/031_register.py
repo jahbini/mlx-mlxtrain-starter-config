@@ -11,14 +11,14 @@ from config_loader import load_config
 # --- STEP-AWARE CONFIG ---
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
-PARAMS    = getattr(STEP_CFG, "params", {})
+STEP_CFG  = CFG[STEP_NAME]
+PARAMS    = STEP_CFG
 
 # Resolve paths (params > global cfg)
-OUT_DIR  = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)); OUT_DIR.mkdir(exist_ok=True)
-RUN_DIR  = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
-EXPERIMENTS_CSV = RUN_DIR / getattr(PARAMS, "experiments_csv", CFG.data.experiments_csv)
-ARTIFACTS = RUN_DIR / getattr(PARAMS, "artifacts", CFG.data.artifacts)
+OUT_DIR  = Path( CFG.run.output_dir); OUT_DIR.mkdir(exist_ok=True)
+DATA_DIR  = Path( CFG.run.data_dir)
+EXPERIMENTS_CSV = DATA_DIR / CFG.run.experiments_csv
+ARTIFACTS = DATA_DIR /  CFG.run.artifacts
 
 # --------------------------
 # Utilities
@@ -68,7 +68,7 @@ registry: Dict[str, Any] = {
 for r in rows:
     model_id   = r["model_id"]
     model_tag  = model_id.replace("/", "--")
-    out_root   = RUN_DIR / model_tag
+    out_root   = DATA_DIR / model_tag
     adapter_dir = Path(r["adapter_path"])
     logs_dir    = Path(r["log_dir"])
 

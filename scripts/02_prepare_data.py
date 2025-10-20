@@ -10,12 +10,12 @@ from config_loader import load_config
 # --- STEP-AWARE CONFIG ---
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
-PARAMS    = getattr(STEP_CFG, "params", {})
+STEP_CFG  = CFG[STEP_NAME]
+PARAMS    = STEP_CFG
 
-OUT_DIR = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)); OUT_DIR.mkdir(exist_ok=True)
-CONTRACT = OUT_DIR / getattr(PARAMS, "contract", CFG.data.contract)
-REPORT   = OUT_DIR / getattr(PARAMS, "report", CFG.data.report)
+DATA_DIR = Path(CFG.run.data_dir); DATA_DIR.mkdir(exist_ok=True)
+CONTRACT = DATA_DIR / CFG.run.contract
+REPORT   = DATA_DIR / CFG.run.report
 
 # Heuristics: potential stop/EOS markers to scan for
 EOS_MARKERS = [

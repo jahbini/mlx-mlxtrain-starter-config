@@ -1,4 +1,4 @@
-# scripts/042_sanity.py
+# scripts/042_examination.py
 # STEP 12 — Regeneration Sanity Checks (artifact + prompt ablation)
 # Goal: diagnose empty outputs by trying:
 #   1) artifact: quantized vs fused
@@ -19,27 +19,27 @@ from config_loader import load_config
 # --- STEP-AWARE CONFIG ---
 CFG       = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
-PARAMS    = getattr(STEP_CFG, "params", {})
+STEP_CFG  = CFG[STEP_NAME]
+PARAMS    = STEP_CFG
 
 # Resolve paths (params > global cfg)
-OUT_DIR   = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)); OUT_DIR.mkdir(exist_ok=True)
-EVAL_DIR  = Path(getattr(PARAMS, "eval_output_dir", CFG.eval.output_dir)); EVAL_DIR.mkdir(exist_ok=True)
-RUN_DIR   = Path(getattr(PARAMS, "run_dir", CFG.run.output_dir))
+OUT_DIR   = Path(CFG.run.output_dir); OUT_DIR.mkdir(exist_ok=True)
+EVAL_DIR  = Path(CFG.run.eval_dir); EVAL_DIR.mkdir(exist_ok=True)
+DATA_DIR   = Path( CFG.run.data_dir)
 
-ARTIFACTS = RUN_DIR / getattr(PARAMS, "artifacts", CFG.data.artifacts)
-CONTRACT  = OUT_DIR / getattr(PARAMS, "contract", CFG.data.contract)
+ARTIFACTS = DATA_DIR / CFG.run.artifacts
+CONTRACT  = OUT_DIR / CFG.run.contract
 
-GEN_JSONL = EVAL_DIR / (getattr(PARAMS, "generations", CFG.eval.generations) + ".jsonl")
-GEN_CSV   = EVAL_DIR / (getattr(PARAMS, "generations", CFG.eval.generations) + ".csv")
-OUT_SUM   = EVAL_DIR / (getattr(PARAMS, "summary", CFG.eval.summary) + ".csv")
-OUT_JSON  = EVAL_DIR / (getattr(PARAMS, "analysis", CFG.eval.analysis) + ".json")
-ABL_PATH  = EVAL_DIR / (getattr(PARAMS, "ablations", CFG.eval.ablations) + ".jsonl")
-ABL_YAML  = EVAL_DIR / (getattr(PARAMS, "ablations", CFG.eval.ablations) + ".yaml")
+GEN_JSONL = EVAL_DIR / (CFG.run.generations + ".jsonl")
+GEN_CSV   = EVAL_DIR / (CFG.run.generations + ".csv")
+OUT_SUM   = EVAL_DIR / (STEP_CFG.summary + ".csv")
+OUT_JSON  = EVAL_DIR / (STEP_CFG.analysis + ".json")
+ABL_PATH  = EVAL_DIR / (STEP_CFG.ablations + ".jsonl")
+ABL_YAML  = EVAL_DIR / (STEP_CFG.ablations + ".yaml")
 
 # ---- Controls ----
 ONLY_MODEL_ID       = ""  # "" = all; or exact id
-PROMPTS             = getattr(PARAMS, "prompts", CFG.sanity.prompts)
+PROMPTS             = STEP_CFG.prompts
 MAX_NEW_TOKENS_SHORT = 64
 MAX_NEW_TOKENS_LONG  = 128
 # -------------------

@@ -10,20 +10,19 @@ from config_loader import load_config
 # --- STEP-AWARE CONFIG ---
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
-PARAMS    = getattr(STEP_CFG, "params", {})
+STEP_CFG  = CFG[STEP_NAME]
 
 # Resolve output locations from params > global config
-OUT_DIR = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)); OUT_DIR.mkdir(exist_ok=True)
-CONTRACT = OUT_DIR / getattr(PARAMS, "contract", CFG.data.contract)
-POLICY   = OUT_DIR / getattr(PARAMS, "policy", CFG.data.policy)
+RUN_DIR = Path(CFG.run.data_dir); RUN_DIR.mkdir(exist_ok=True)
+CONTRACT = RUN_DIR / CFG.run.contract
+POLICY   = RUN_DIR / CFG.run.policy
 
 # ------------------------
 # 1) Choose a template
 # ------------------------
-TEMPLATE_NAME = PARAMS.get("template_name", "plain_text_passthrough")
-STOP_STRINGS  = PARAMS.get("stop_strings", ["\n\n"])
-USE_EOS_TOKEN = PARAMS.get("use_eos_token", True)
+TEMPLATE_NAME = STEP_CFG["template_name"]
+STOP_STRINGS  = STEP_CFG["stop_strings"]
+USE_EOS_TOKEN = STEP_CFG["use_eos_token"]
 
 # ------------------------
 # 2) Load contract & sample a few rows

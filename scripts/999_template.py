@@ -29,18 +29,18 @@ from config_loader import load_config
 
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
-PARAMS    = getattr(STEP_CFG, "params", {})
+STEP_CFG  = CFG[STEP_NAME]
+PARAMS    = STEP_CFG
 
 # --- 2) Resolve Paths ------------------------------------------------
 ROOT      = Path(os.getenv("EXEC", Path(__file__).parent)).resolve()
-OUT_DIR   = Path(getattr(PARAMS, "output_dir", CFG.data.output_dir)).resolve()
+OUT_DIR   = Path( CFG.data.output_dir).resolve()
 LOG_DIR   = OUT_DIR / "logs"
 for d in [OUT_DIR, LOG_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
-INPUT_FILE  = Path(getattr(PARAMS, "input",  OUT_DIR / CFG.data.contract))
-OUTPUT_FILE = Path(getattr(PARAMS, "output", OUT_DIR / f"{STEP_NAME}_output.json"))
+INPUT_FILE  = Path( OUT_DIR / STEP_CFG.data.contract)
+OUTPUT_FILE = Path( OUT_DIR / f"{STEP_NAME}_output.json")
 
 # --- 3) Logging ------------------------------------------------------
 LOG_PATH = LOG_DIR / f"{STEP_NAME}.log"

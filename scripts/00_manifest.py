@@ -15,18 +15,14 @@ from config_loader import load_config
 
 CFG = load_config()
 STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG.pipeline.steps[STEP_NAME]
+STEP_CFG  = CFG[STEP_NAME]
 
+# ---------- Configuration ----------
 OUT_DIR       = Path(CFG.run.output_dir)
 LOCKFILE      = OUT_DIR / "requirements.lock"
 MANIFEST_YAML = OUT_DIR / "run_manifest.yaml"
 MANIFEST_JSON = OUT_DIR / "run_manifest.json"
-SEED          = CFG.run.seed
-ARTIFACTS     = CFG.data.artifacts
-# ---------- Configuration ----------
-# Allow step-specific overrides in future
-#PARAMS = STEP_CFG.get("params", {})
-# ----------------------------------------------------
+SEED          = STEP_CFG.seed
 
 # 1) Set seeds for determinism
 import random
