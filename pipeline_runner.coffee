@@ -125,8 +125,8 @@ createExperimentYaml = (basePath, defaultConfig, overridePath) ->
   override = loadYamlSafe(overridePath)
 
   # Precedence: recipe < defaults < override
-  merged = deepMerge {}, recipe
-  merged = deepMerge merged, defaults
+  merged = deepMerge {}, defaults
+  merged = deepMerge merged, recipe
   merged = deepMerge merged, override
 
   expPath = path.join(process.cwd(), 'experiment.yaml')
