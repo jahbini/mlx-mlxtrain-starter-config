@@ -14,22 +14,22 @@ yaml = require 'js-yaml'
 
 # --- Local Config Loader for Evaluation Context ---
 loadLocalConfig = ->
-  expPath = path.join(process.cwd(), 'experiment.yaml')
+  expPath = path.join(process.cwd(), 'evaluate.yaml')
   unless fs.existsSync(expPath)
-    console.error "❌ Missing experiment.yaml in #{process.cwd()}"
+    console.error "❌ Missing evaluate.yaml in #{process.cwd()}"
     process.exit(1)
   yaml.load fs.readFileSync(expPath, 'utf8')
 
 CFG = loadLocalConfig()
 
-EVAL_DIR = path.resolve CFG.eval.output_dir
+EVAL_DIR = path.resolve CFG.run.eval_dir
 RUN_DIR  = path.resolve CFG.run.output_dir
 fs.mkdirSync EVAL_DIR, { recursive: true }
 
-ARTIFACTS = path.join RUN_DIR, CFG.data.artifacts
-ABL_JSONL = path.join EVAL_DIR, "#{CFG.eval.ablations}.jsonl"
-REPORT_MD = path.join EVAL_DIR, CFG.eval.report
-POLICY_JS = path.join EVAL_DIR, CFG.eval.policy
+ARTIFACTS = path.join RUN_DIR, CFG.run.artifacts
+ABL_JSONL = path.join EVAL_DIR, "#{CFG.run.ablations}.jsonl"
+REPORT_MD = path.join EVAL_DIR, CFG.run.report
+POLICY_JS = path.join EVAL_DIR, CFG.run.policy
 
 unless fs.existsSync ABL_JSONL
   console.error "Missing ablations.jsonl (Step 12)"

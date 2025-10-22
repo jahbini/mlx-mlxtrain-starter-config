@@ -1,22 +1,30 @@
 #!/usr/bin/env coffee
 ###
-  courtroom_judge.coffee
-  Unified evaluator + judge.
+  pipeline_evaluator.coffee
+  Unified evaluator + judge (flat-map schema).
 
   Modes:
   1) Single-run (inside a training directory with experiment.yaml):
-     - Build evaluate.yaml (defaults + recipe + override + env CFG_*)
-     - Parse pipeline, topo-sort, and execute CoffeeScript steps
-     - Log step stdout/stderr to logs/eval.log and logs/eval.err
+     - Build evaluate.yaml (defaults + eval recipe + env CFG_* ONLY)
+     - Parse flat-map steps, build DAG, execute CoffeeScript steps
+     - Log stdout/stderr to logs/eval.log and logs/eval.err
 
   2) Courtroom (no experiment.yaml in CWD):
      - For each subdir containing experiment.yaml:
          spawn this same script (single-run mode) with cwd=subdir
-     - After all complete, aggregate ablation_generations_summary.csv
-       from each run into judgement_summary.{json,csv,md} in courtroom.
+     - Aggregate ablation_generations_summary.csv to judgement_summary.{json,csv,md}
+
+  Guarantees:
+    • No per-run override files are used (directory overrides ignored).
+    • Only steps declared in the eval recipe become DAG nodes.
+    • Flat-map schema (top-level keys with `run:`) is required.
 
   ENV:
-    EXEC must point to repo root containing config/default.yaml and recipes/eval_pipeline.yaml
+    EXEC must point to repo root containing:
+      - config/default.yaml        (for generic run.* defaults and params)
+      - recipes/eval_pipeline.yaml (the evaluation recipe)
+    Optional:
+      - CFG_* prefixed env vars for last-mile param overrides
 ###
 
 fs        = require 'fs'
@@ -24,6 +32,9 @@ path      = require 'path'
 yaml      = require 'js-yaml'
 { spawn } = require 'child_process'
 
+# ----------------------------
+# CLI + CWD
+# ----------------------------
 targetDir = process.argv[2]
 unless targetDir?
   console.error "❌ Missing target directory argument."
@@ -36,6 +47,7 @@ unless fs.existsSync(targetDir)
 
 process.chdir targetDir
 console.log "📂 Evaluating:", targetDir
+
 # ----------------------------
 # Helpers (logging, CSV, misc)
 # ----------------------------
@@ -58,7 +70,7 @@ readCsv = (p) ->
   rows
 
 # ----------------------------
-# Memo kernel (as in runner)
+# Memo (same as runner)
 # ----------------------------
 class Memo
   constructor: (@evaluator) ->
@@ -86,9 +98,10 @@ class Memo
     Promise.all(dependants).then andDo
 
 # ----------------------------
-# Config flattening utilities
+# Config utilities
 # ----------------------------
 isPlainObject = (o) -> Object.prototype.toString.call(o) is '[object Object]'
+
 deepMerge = (target, source) ->
   return target unless source?
   for own k, v of source
@@ -107,7 +120,7 @@ expandIncludes = (spec, baseDir) ->
   return spec unless incs? and Array.isArray(incs) and incs.length > 0
   merged = JSON.parse(JSON.stringify(spec))
   for inc in incs
-    incPath = path.isAbsolute(inc) and inc or path.join(baseDir, inc)
+    incPath = if path.isAbsolute(inc) then inc else path.join(baseDir, inc)
     sub = loadYamlSafe(incPath)
     merged = deepMerge merged, sub
   merged
@@ -126,100 +139,216 @@ buildEnvOverrides = (prefix='CFG_') ->
     node[parts[parts.length-1]] = val
   out
 
-createEvaluateYaml = (EXEC, baseRecipePath, overridePath) ->
+# ----------------------------
+# Build evaluate.yaml (NO per-run overrides)
+#   - defaults + eval recipe (+ includes) + CFG_*
+#   - then RESTRICT steps to those declared in the recipe
+# ----------------------------
+createEvaluateYaml = (EXEC) ->
+  banner "🔧 Building evaluate.yaml"
+  defaultPath = path.join(EXEC, 'config', 'default.yaml')
+  recipePath  = path.join(EXEC, 'recipes', 'eval_pipeline.yaml')
+
+  defaults = loadYamlSafe(defaultPath)
+  recipe   = loadYamlSafe(recipePath)
+  envOv    = buildEnvOverrides('CFG_')
+
+  # Merge only these three — no cwd overrides, no experiment.yaml
+  merged = deepMerge {}, defaults
+  merged = deepMerge merged, recipe
+  merged = deepMerge merged, envOv
+
+  # Sanity ping
+  unless merged?.run?.output_dir?
+    console.warn "⚠️ run.output_dir missing post-merge; check defaults/config:", defaultPath
+
+  outPath = path.join(process.cwd(), 'evaluate.yaml')
+  fs.writeFileSync outPath, yaml.dump(merged), 'utf8'
+  console.log "✅ evaluate.yaml written →", outPath
+  console.log "Includes steps:", (k for own k, v of recipe when v?.run?).join(', ')
+  outPath
+
+createEvaluateYamlOld = (EXEC, baseRecipePath) ->
   banner "🔧 Building evaluate.yaml"
   defaultPath = path.join(EXEC, 'config', 'default.yaml')
   baseAbs     = path.resolve(baseRecipePath)
   baseDir     = path.dirname(baseAbs)
 
+  unless fs.existsSync(baseAbs)
+    throw new Error "Eval recipe not found: #{baseAbs}"
+
   defaults = loadYamlSafe(defaultPath)
   base     = loadYamlSafe(baseAbs)
-  base     = expandIncludes(base, baseDir)
-  override = loadYamlSafe(overridePath)
+  base     = expandIncludes(base, baseDir)   # resolve includes relative to recipe dir
   envOv    = buildEnvOverrides('CFG_')
 
+  # Merge: defaults → base recipe → env
   merged = deepMerge {}, defaults
   merged = deepMerge merged, base
-  merged = deepMerge merged, override
   merged = deepMerge merged, envOv
 
-  # Sanity ping
+  # Restrict DAG nodes to only those declared by the recipe (not defaults).
+  # A step is a top-level key with a 'run:' field.
+  recipeKeys = (k for own k, v of base when k isnt 'run' and v?.run?)
+  for own k, v of merged
+    continue if k is 'run'
+    continue if k in recipeKeys
+    if v?.run?
+      # This is a runnable step present in defaults/env, but NOT in the eval recipe.
+      delete merged[k]
+
   unless merged?.run?.output_dir?
-    console.warn "⚠️  run.output_dir missing post-merge; check defaults/override."
+    console.warn "⚠️  run.output_dir missing post-merge; check recipe:", baseRecipePath
 
   outPath = path.join(process.cwd(), 'evaluate.yaml')
   fs.writeFileSync outPath, yaml.dump(merged), 'utf8'
   console.log "✅ evaluate.yaml →", outPath
+  console.log "Eval steps:", recipeKeys.join(', ')
   outPath
 
 # ----------------------------
-# Pipeline graph (eval recipe)
+# Pipeline (flat-map) → steps map
 # ----------------------------
-normalizePipeline = (spec={}) ->
-  steps = spec.pipeline?.steps
-  unless steps?
-    throw new Error "Spec missing pipeline.steps"
+###
+  normalizeFlatPipeline
+  ---------------------
+  Interprets only those top-level keys that contain an explicit
+  'depends_on' field as pipeline steps.
+  Everything else (like 'run:' block, paths, configs) is ignored.
+###
+normalizeFlatPipeline = (spec = {}) ->
+  steps = {}
 
-  for own name, def of steps when def?.depends_on? and def.depends_on.length is 1 and def.depends_on[0] is 'never'
-    delete steps[name]
+  for own name, def of spec
+    # Ignore the global 'run' block or any scalar/non-object entries
+    continue if name is 'run'
+    continue unless def? and typeof def is 'object'
 
-  if Array.isArray(steps)
-    obj = {}
-    for name in steps
-      obj[name] = { run: null, depends_on: [] }
-    steps = obj
+    # Only accept entries that explicitly define 'depends_on'
+    unless 'depends_on' of def
+      console.log "⚙️  config-only section '#{name}' (no depends_on) — ignored"
+      continue
 
-  for own name, def of steps
-    unless def?.run? then throw new Error "Step '#{name}' missing 'run:'"
-    def.depends_on ?= []
-    unless Array.isArray(def.depends_on)
-      throw new Error "Step '#{name}'.depends_on must be an array"
+    # Skip disabled steps
+    if def.depends_on is 'never' or (Array.isArray(def.depends_on) and 'never' in def.depends_on)
+      console.log "⏭️  skipping step #{name} (depends_on: never)"
+      continue
+
+    # Normalize dependency list
+    deps = []
+    if def.depends_on?
+      deps = if Array.isArray(def.depends_on) then def.depends_on else [def.depends_on]
+
+    # Register the step
+    steps[name] =
+      run: def.run ? null
+      depends_on: deps
+      params: Object.assign({}, def)
+      desc: def.desc or ''
+
+  unless Object.keys(steps).length
+    throw new Error "No runnable steps found in evaluate.yaml"
+
+  return steps
+
+normalizeFlatPipelineOld = (spec = {}) ->
+  steps = {}
+  for own name, def of spec
+    continue if name is 'run'   # global config
+
+    # A DAG node must have 'run:'
+    continue unless def?.run?
+
+    # depends_on normalization / skipping
+    deps = []
+    if def.depends_on?
+      if def.depends_on is 'never' or (Array.isArray(def.depends_on) and 'never' in def.depends_on)
+        console.log "⏭️  skipping step #{name} (depends_on: never)"
+        continue
+      deps = if Array.isArray(def.depends_on) then def.depends_on else [def.depends_on]
+
+    steps[name] =
+      run: def.run
+      depends_on: deps
+      params: Object.assign({}, def)
+      desc: def.desc or ''
+
+  unless Object.keys(steps).length
+    throw new Error "No runnable steps found in evaluate.yaml"
+
   steps
 
-toposort = (steps) ->
-  indeg = {}; graph = {}
-  for own n, _ of steps
-    indeg[n] = 0; graph[n] = []
-  for own n, def of steps
+# ----------------------------
+# DAG builder (defensive Kahn)
+# ----------------------------
+buildDag = (steps) ->
+  indeg = {}
+  graph = {}
+
+  # init structures
+  for own name, _ of steps
+    indeg[name] = 0
+    graph[name] = []
+
+  # build edges, prune missing deps
+  for own name, def of steps
+    clean = []
+    for dep in def.depends_on or []
+      if steps[dep]?
+        clean.push dep
+      else
+        console.warn "⚠️  #{name} depends on missing step '#{dep}' — ignoring."
+    def.depends_on = clean
+
+  for own name, def of steps
     for dep in def.depends_on
-      unless steps[dep]? then throw new Error "Undefined dependency '#{dep}'"
-      indeg[n] += 1; graph[dep].push n
+      indeg[name] += 1
+      graph[dep].push name
+
+  # seed queue with roots (indegree 0)
   q = (n for own n, d of indeg when d is 0)
+  if q.length is 0
+    # try explicit [] deps as roots
+    for own n, def of steps when Array.isArray(def.depends_on) and def.depends_on.length is 0
+      q.push n unless n in q
+
   order = []
   while q.length
     n = q.shift()
     order.push n
     for m in graph[n]
       indeg[m] -= 1
-      if indeg[m] is 0 then q.push m
+      if indeg[m] is 0
+        q.push m
+
+  # Don't hard-fail if graph changed due to pruning; just warn
   if order.length isnt Object.keys(steps).length
-    throw new Error "Cycle detected in pipeline graph"
+    missing = Object.keys(steps).filter (k)-> order.indexOf(k) is -1
+    console.error "⚠️  DAG anomaly: expected #{Object.keys(steps).length}, got #{order.length}. Missing:", missing.join(', ')
+
   order
 
 # ----------------------------
-# Step runner (CoffeeScript)
+# Step runner (CoffeeScript-only eval steps)
 # ----------------------------
 runCoffeeStep = (stepName, scriptPath, env, logOutFd, logErrFd) ->
   new Promise (resolve, reject) ->
-    # Always spawn coffee for the step; send output to logs
     proc = spawn('coffee', [scriptPath],
       cwd: process.cwd()
       env: env
       stdio: ['ignore', logOutFd, logErrFd]
     )
-    proc.on 'error', (e) -> 
-      console.log "BIGBAD",e
+    proc.on 'error', (e) ->
       reject e
     proc.on 'exit', (code) ->
       if code is 0 then resolve() else reject new Error("#{stepName} failed (#{code})")
-      
 
 # ----------------------------
-# Single-run evaluator (in CWD)
+# Single-run evaluator
 # ----------------------------
 evaluateCurrentRun = (EXEC) ->
   banner "Single-run mode: evaluating CWD"
-  console.log "CWD is" , process.cwd()
+  console.log "CWD is", process.cwd()
 
   # Prepare logs
   fs.mkdirSync path.join(process.cwd(), 'logs'), {recursive:true}
@@ -228,16 +357,20 @@ evaluateCurrentRun = (EXEC) ->
 
   try
     recipe = path.join(EXEC, 'recipes', 'eval_pipeline.yaml')
-    overridePath = path.join(process.cwd(), 'override.yaml')
-    evalYaml = createEvaluateYaml(EXEC, recipe, overridePath)
+    console.log "Recipe:", recipe
+    evalYaml = createEvaluateYaml(EXEC, recipe)
 
     spec  = loadYamlSafe(evalYaml)
-    steps = normalizePipeline(spec)
-    order = toposort(steps)
+    steps = normalizeFlatPipeline(spec)
+    order = buildDag(steps)
+
+    console.log "Topo order:", order.join(' → ')
+    for own n, d of steps
+      console.log "#{n} depends_on: #{(d.depends_on or []).join(', ')}"
 
     M = new Memo()
 
-    # Run in strict topo order (deterministic), Memo marks done
+    # Execute in topo order
     for name in order
       def = steps[name]
       scriptPath = path.join(EXEC, def.run)
@@ -249,7 +382,6 @@ evaluateCurrentRun = (EXEC) ->
 
     banner "🌟 Evaluation finished for current run."
   finally
-    # Ensure fds closed even on errors
     try fs.closeSync logOutFd catch e then null
     try fs.closeSync logErrFd catch e then null
 
@@ -272,21 +404,19 @@ discoverCandidates = (courtroomDir) ->
   out
 
 spawnSelfSingleRun = (EXEC, runDir) ->
+  fs.mkdirSync path.join(runDir, 'logs'), {recursive:true}
   logOutFd = fs.openSync(path.join(runDir, 'logs', 'eval.log'), 'a')
   logErrFd = fs.openSync(path.join(runDir, 'logs', 'eval.err'), 'a')
   new Promise (resolve, reject) ->
-    # Spawn THIS script in the runDir; stdout/err piped to that run's logs via the child
     proc = spawn 'coffee', [
       path.join(EXEC, 'pipeline_evaluator.coffee'),
       runDir
     ],
-      cwd: runDir   #courtroom        # parent context
+      cwd: runDir
       env: Object.assign({}, process.env, { EXEC })
-      stdio: ['ignore', logOutFd, logErrFd]  # child writes logs to files
+      stdio: ['ignore', logOutFd, logErrFd]
 
-    proc.on 'error', (e) ->
-      console.log "JIM spawn fail",runDir,e
-      reject e
+    proc.on 'error', (e) -> reject e
     proc.on 'exit', (code) ->
       if code is 0 then resolve() else reject new Error("Evaluator exited #{code}")
 
@@ -297,7 +427,6 @@ aggregateCourtroom = (courtroomDir) ->
     continue unless fs.existsSync(sumCsv)
     rows = readCsv(sumCsv)
     continue unless rows.length
-    # choose the row with largest n
     best = rows.slice().sort (a,b) ->
       (parseFloat(b.n ? '0') or 0) - (parseFloat(a.n ? '0') or 0)
     primary = best[0]
@@ -309,10 +438,9 @@ aggregateCourtroom = (courtroomDir) ->
       empty_rate: +toFixed4(parseF(primary.empty_rate))
       sent_end_rate: +toFixed4(parseF(primary.sent_end_rate))
       avg_len_words: +toFixed4(parseF(primary.avg_len_words))
-  return results
+  results
 
 writeJudgement = (courtroomDir, results) ->
-  # Sort: empty_rate ASC, sent_end_rate DESC, avg_len_words DESC
   results.sort (a,b) ->
     if a.empty_rate isnt b.empty_rate then a.empty_rate - b.empty_rate \
     else if a.sent_end_rate isnt b.sent_end_rate then b.sent_end_rate - a.sent_end_rate \
@@ -356,8 +484,8 @@ main = ->
 
   console.log "=== Eval started", new Date().toISOString(), "==="
 
+  # Single-run mode if the target has a training experiment.yaml
   if fs.existsSync(path.join(process.cwd(), 'experiment.yaml'))
-    # Single run: parse recipe + run steps with Memo + log to files
     await evaluateCurrentRun(EXEC)
     process.exit(0)
 
@@ -374,18 +502,15 @@ main = ->
     console.log "No candidate run directories found (need subdirs with experiment.yaml)."
     process.exit(0)
 
-  # Sequentially spawn ourselves in each run directory
   for dir in runDirs
     banner "Evaluating: #{dir}"
     try
-      console.log "Spawning",EXEC,dir
       await spawnSelfSingleRun(EXEC, dir)
       console.log "✅ OK:", dir
     catch e
       console.error "❌ Evaluation failed:", dir
       console.error String(e?.message or e)
 
-  # After all complete, aggregate
   results = aggregateCourtroom(courtroom)
   if results.length is 0
     console.log "No usable results found."

@@ -21,12 +21,12 @@ process.env.NODE_NO_WARNINGS = 1
 {load_config} = require './config_loader'
 CFG       = load_config()
 STEP_NAME = process.env.STEP_NAME or 'extract_md_for_voice'
-STEP_CFG  = CFG.pipeline.steps?[STEP_NAME] or {}
-PARAMS    = STEP_CFG.params or {}
+STEP_CFG  = CFG[STEP_NAME] 
+PARAMS    = STEP_CFG.params
 
 # --- 2) Directories ---
-ROOT    = path.resolve process.env.EXEC or path.dirname(__filename)
-OUT_DIR = path.resolve PARAMS.output_dir or CFG.data.output_dir
+ROOT    = path.resolve process.env.EXEC
+OUT_DIR = path.resolve CFG.run.data_dir 
 LOG_DIR = path.join OUT_DIR, 'logs'
 fs.mkdirSync OUT_DIR, {recursive: true}
 fs.mkdirSync LOG_DIR, {recursive: true}
@@ -39,14 +39,14 @@ log = (msg) ->
   console.log line
 
 # --- 3) Parameters ---
-INPUT_MD        = path.resolve PARAMS.input_md or 'your.md'
-SEED            = parseInt PARAMS.seed or CFG.run?.seed or 42
-VALID_FRAC      = parseFloat PARAMS.valid_fraction or CFG.web?.valid_fraction or 0.1
-MIN_STORY_WORDS = parseInt PARAMS.min_story_words or CFG.web?.min_story_words or 50
+INPUT_MD        = path.resolve STEP_CFG.input_md
+SEED            = parseInt CFG.run.seed
+VALID_FRAC      = parseFloat STEP_CFG.valid_fraction 
+MIN_STORY_WORDS = parseInt STEP_CFG.min_story_words
 
-CONTRACT_PATH = path.join OUT_DIR, CFG.data?.contract or 'data_contract.json'
-CATALOG_PATH  = path.join OUT_DIR, CFG.data?.catalog  or 'data_catalog.json'
-REPORT_PATH   = path.join OUT_DIR, CFG.data?.report   or 'data_report.json'
+CONTRACT_PATH = path.join OUT_DIR, CFG.run.contract
+CATALOG_PATH  = path.join OUT_DIR, CFG.run.catalog
+REPORT_PATH   = path.join OUT_DIR, CFG.run.report
 TRAIN_JSONL   = path.join OUT_DIR, 'train.jsonl'
 VALID_JSONL   = path.join OUT_DIR, 'valid.jsonl'
 
@@ -173,8 +173,12 @@ contract =
   created_utc: created
   data_dir: OUT_DIR
   filenames:
-    train: chosen:path.basename(TRAIN_JSONL), resolved:TRAIN_JSONL
-    valid: chosen:path.basename(VALID_JSONL), resolved:VALID_JSONL
+    train:
+      chosen:path.basename(TRAIN_JSONL)
+      resolved:TRAIN_JSONL
+    valid:
+      chosen:path.basename(VALID_JSONL)
+      resolved:VALID_JSONL
   schema:
     format: 'jsonl'
     fields: schema_fields
@@ -183,8 +187,42 @@ contract =
     target_field: target_field
     origin: 'markdown_file'
 
+fs.writeFileSync CONTRACT_PATH, JSON.stringify(contract,null,2)
+
+report =
+  created_utc: created
+  counts:
+    train:t_lines
+    valid:v_lines
+  train_stats: summarize_lengths TRAIN_JSONL, target_field
+  valid_stats: summarize_lengths VALID_JSONL, target_field
+  target_field: target_field
+  schema_mode: mode
+
+fs.writeFileSync REPORT_PATH,   JSON.stringify(report,null,2)
+
 catalog =
   created_utc: created
+  data_dir: OUT_DIR
+  mode: mode
+  target_field: target_field
+  schema: schema_fields
+  total_examples:
+     train: t_lines
+     valid: v_lines
+  entries:
+    train:
+      path: TRAIN_JSONL
+      stats:
+        num_valid_examples: t_lines
+        num_bytes: t_bytes
+        sha256: sha256_file TRAIN_JSONL
+    valid:
+      path: VALID_JSONL
+      stats:
+        num_valid_examples: v_lines
+        num_bytes: v_bytes
+        sha256: sha256_file VALID_JSONL
   files:
     train:
       path: TRAIN_JSONL
@@ -196,18 +234,11 @@ catalog =
       lines: v_lines
       bytes: v_bytes
       sha256: sha256_file VALID_JSONL
+  checksums:
+    contract: sha256_file CONTRACT_PATH
+    report:   sha256_file REPORT_PATH
 
-report =
-  created_utc: created
-  counts: train:t_lines, valid:v_lines
-  train_stats: summarize_lengths TRAIN_JSONL, target_field
-  valid_stats: summarize_lengths VALID_JSONL, target_field
-  target_field: target_field
-  schema_mode: mode
-
-fs.writeFileSync CONTRACT_PATH, JSON.stringify(contract,null,2)
 fs.writeFileSync CATALOG_PATH,  JSON.stringify(catalog,null,2)
-fs.writeFileSync REPORT_PATH,   JSON.stringify(report,null,2)
 
 log "[INFO] Wrote contract/catalog/report to #{OUT_DIR}"
 log "[INFO] Completed step #{STEP_NAME} successfully"

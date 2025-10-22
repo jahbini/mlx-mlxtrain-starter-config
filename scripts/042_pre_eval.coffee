@@ -51,8 +51,8 @@ main = ->
 
   EVAL_DIR = path.join(process.cwd(), 'eval_out')
   GEN_PATH = path.join(EVAL_DIR, 'generations.jsonl')
-  OUT_JSON = path.join(EVAL_DIR, 'pre_eval_summary.json')
-  OUT_CSV  = path.join(EVAL_DIR, 'pre_eval_summary.csv')
+  OUT_JSON = path.join(EVAL_DIR, 'summary.json')
+  OUT_CSV  = path.join(EVAL_DIR, 'summary.csv')
 
   unless fs.existsSync(GEN_PATH)
     console.error "❌ Missing #{GEN_PATH}. Did snapshot.py run?"

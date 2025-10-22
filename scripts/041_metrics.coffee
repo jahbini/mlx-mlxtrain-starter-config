@@ -11,23 +11,25 @@ d3   = require 'd3-dsv'    # for CSV parsing/writing
 
 # --- Local Config Loader for Evaluation Context ---
 loadLocalConfig = ->
-  expPath = path.join(process.cwd(), 'experiment.yaml')
+  expPath = path.join(process.cwd(), 'evaluate.yaml')
   unless fs.existsSync(expPath)
-    console.error "❌ Missing experiment.yaml in #{process.cwd()}"
+    console.error "❌ Missing evaluate.yaml in #{process.cwd()}"
     process.exit(1)
   yaml.load fs.readFileSync(expPath, 'utf8')
 # --- Config loader ---
 CFG = loadLocalConfig()
 
-OUT_DIR  = path.resolve CFG.data.output_dir
-EVAL_DIR = path.resolve CFG.eval.output_dir
+
+OUT_DIR  = path.resolve CFG.run.data_dir
+EVAL_DIR = path.resolve CFG.run.eval_dir
 RUN_DIR  = path.resolve CFG.run.output_dir
 
-CONTRACT  = path.join OUT_DIR, CFG.data.contract
-GEN_JSONL = path.join EVAL_DIR, CFG.eval.generations + ".jsonl"
-GEN_CSV   = path.join EVAL_DIR, CFG.eval.generations + ".csv"
-OUT_SUM   = path.join EVAL_DIR, CFG.eval.summary + ".csv"
-OUT_JSON  = path.join EVAL_DIR, CFG.eval.analysis + ".json"
+CONTRACT  = path.join OUT_DIR, CFG.run.contract
+GEN_JSONL = path.join EVAL_DIR, CFG.run.generations + ".jsonl"
+GEN_CSV   = path.join EVAL_DIR, CFG.run.generations + ".csv"
+OUT_SUM   = path.join EVAL_DIR, CFG.run.summary + ".csv"
+OUT_JSON  = path.join EVAL_DIR, CFG.run.analysis + ".json"
+
 
 # --- Safety checks ---
 unless fs.existsSync GEN_JSONL

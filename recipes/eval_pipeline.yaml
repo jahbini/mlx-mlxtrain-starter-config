@@ -2,46 +2,46 @@
 # This pipeline is intended to be run by pipeline_evaluator.coffee
 # It assumes training runs have already produced outputs under run/*
 
-pipeline:
-  steps:
+manifest:
+  depends_on: [ never ]
+pre_eval:
+  run: scripts/042_pre_eval.coffee
+  depends_on: []
 
-    pre_eval:
-      run: scripts/042_pre_eval.coffee
-      depends_on: []
+metrics:
+  run: scripts/041_metrics.coffee
+  depends_on: [pre_eval]
 
-    metrics:
-      run: scripts/041_metrics.coffee
-      depends_on: [pre_eval]
+sanity:
+  run: scripts/042_sanity.coffee
+  ablations: ablation_generations
+  depends_on: [metrics]
 
-    sanity:
-      run: scripts/042_sanity.coffee
-      depends_on: [metrics]
-
-    #Final evaluation report and policy generation
-    eval:
-      run: scripts/05_eval.coffee
-      inputs:
-        - eval_out/ablations.jsonl
-        - run/artifacts.json
-      outputs:
-        - eval_out/report.md
-        - eval_out/generation_policy.json
-      depends_on: [sanity]
+#Final evaluation report and policy generation
+eval:
+  run: scripts/05_eval.coffee
+  inputs:
+   - eval_out/ablations.jsonl
+   - run/artifacts.json
+  outputs:
+   - eval_out/report.md
+   - eval_out/generation_policy.json
+  depends_on: [sanity]
 
 
-    entropy:
-      run: scripts/115_entropy.py
-      depends_on: [never]
+entropy:
+  run: scripts/115_entropy.py
+  depends_on: [never]
 
-    prepare_outmd:
-      run: scripts/80_prepare_outmd.py
-      depends_on: [never]
+prepare_outmd:
+  run: scripts/80_prepare_outmd.py
+  depends_on: [never]
 
-    train_sft:
-      run: scripts/81_train_sft.py
-      depends_on: [never]
+train_sft:
+  run: scripts/81_train_sft.py
+  depends_on: [never]
 
-    chat:
-      run: scripts/chat.py
-      depends_on: [never]
+chat:
+  run: scripts/chat.py
+  depends_on: [never]
 

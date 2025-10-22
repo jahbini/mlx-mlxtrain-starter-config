@@ -25,21 +25,20 @@ _    = require 'lodash'
 
 # --- Local Config Loader ---
 loadLocalConfig = ->
-  expPath = path.join(process.cwd(), 'experiment.yaml')
+  expPath = path.join(process.cwd(), 'evaluate.yaml')
   unless fs.existsSync(expPath)
-    console.error "❌ Missing experiment.yaml in #{process.cwd()}"
+    console.error "❌ Missing evaluate.yaml in #{process.cwd()}"
     process.exit(1)
   yaml.load fs.readFileSync(expPath, 'utf8')
 
 CFG = loadLocalConfig()
 
-EVAL_DIR = path.resolve CFG.eval.output_dir
+EVAL_DIR = path.resolve CFG.run.eval_dir
 fs.mkdirSync EVAL_DIR, { recursive: true }
 
-ABL_JSONL = path.join EVAL_DIR, "#{CFG.eval.ablations}.jsonl"
-SUM_JSON  = path.join EVAL_DIR, "#{CFG.eval.ablations}_summary.json"
-SUM_CSV   = path.join EVAL_DIR, "#{CFG.eval.ablations}_summary.csv"
-
+ABL_JSONL = path.join EVAL_DIR, "#{CFG.sanity.ablations}.jsonl"
+SUM_JSON  = path.join EVAL_DIR, "#{CFG.sanity.ablations}_summary.json"
+SUM_CSV   = path.join EVAL_DIR, "#{CFG.sanity.ablations}_summary.csv"
 unless fs.existsSync ABL_JSONL
   console.error "❌ Missing #{ABL_JSONL}. Run 042_examination.py first."
   process.exit(1)

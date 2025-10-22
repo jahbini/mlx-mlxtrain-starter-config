@@ -17,6 +17,9 @@ run:
   fused_dir: run/fused_model
   generations: generations
   tokmeta: tokenizer_meta
+  ablations: ablation_generations
+  summary: summary
+  analysis: analysis
 
 # ---- Step Definitions ------------------------------------------------------
 
@@ -48,7 +51,7 @@ prepare_experiments:
   run: scripts/023_prepare_experiments.py
   contract: run/data/data_contract.json
   epochs: 3
-  batch_size: 8
+  batch_size: 2
   grad_accum: 8
   max_seq_length: 512
   learning_rate: 0.0002
@@ -107,7 +110,7 @@ examination:
 
 extract_md_for_voice:
   run: scripts/092_extract_md_for_voice.py
-  input_md: datasets/your.md
+  input_md: your.md
   valid_fraction: 0.1
   min_story_words: 40
 
