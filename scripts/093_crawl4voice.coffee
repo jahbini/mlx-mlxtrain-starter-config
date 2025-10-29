@@ -9,8 +9,12 @@ extracts #bloviation stories, and builds multi-paragraph
 (prompt, completion) pairs suitable for continuation-style training.
 
 Outputs:
-  train.jsonl / valid.jsonl
-  contract / catalog / report metadata
+  - train.jsonl / valid.jsonl
+  - contract.json / report.json / catalog.json
+
+Notes:
+  This could eventually be replaced by a declarative spec,
+  but for now it’s a full executable step for reproducibility.
 ###
 
 fs      = require 'fs'
@@ -20,51 +24,74 @@ url     = require 'url'
 axios   = require 'axios'
 cheerio = require 'cheerio'
 crypto  = require 'crypto'
+yaml    = require 'js-yaml'
 
 process.env.NODE_NO_WARNINGS = 1
 
-# --- Config loader ---
-{load_config} = require '../config_loader'
-CFG       = load_config()
+# -------------------------------------------------------------------
+# 1) Load Config
+# -------------------------------------------------------------------
 STEP_NAME = process.env.STEP_NAME or 'crawl_for_voice_continuation'
-STEP_CFG  = CFG.pipeline.steps?[STEP_NAME] or {}
-PARAMS    = STEP_CFG.params or {}
+CFG_PATH  = process.env.CFG_OVERRIDE or path.join process.cwd(), 'experiment.yaml'
 
-# --- Paths & setup ---
-RUN_DIR   = path.resolve PARAMS.run_dir or CFG.run.output_dir
-OUT_DIR   = path.join RUN_DIR, PARAMS.output_dir or CFG.data.output_dir
+try
+  CFG_FULL = yaml.load fs.readFileSync(CFG_PATH, 'utf8')
+catch err
+  console.error "⚠️ Could not load #{CFG_PATH}: #{err.message}"
+  CFG_FULL = {}
+
+RUN_CFG   = CFG_FULL?.run or {}
+STEP_CFG  = CFG_FULL?[STEP_NAME] or {}
+PARAMS    = STEP_CFG?.params or {}
+
+# -------------------------------------------------------------------
+# 2) Paths
+# -------------------------------------------------------------------
+RUN_DIR   = path.resolve PARAMS.run_dir or RUN_CFG.output_dir or 'run'
+OUT_DIR   = path.join RUN_DIR, PARAMS.output_dir or 'data/voice_continuation'
 LOG_DIR   = path.join OUT_DIR, 'logs'
 TRAIN_JSONL = path.join OUT_DIR, 'train.jsonl'
 VALID_JSONL = path.join OUT_DIR, 'valid.jsonl'
-fs.mkdirSync OUT_DIR, {recursive: true}
-fs.mkdirSync LOG_DIR, {recursive: true}
+CONTRACT_PATH = path.join OUT_DIR, 'contract.json'
+REPORT_PATH   = path.join OUT_DIR, 'report.json'
+CATALOG_PATH  = path.join OUT_DIR, 'catalog.json'
 
-logPath = path.join LOG_DIR, "#{STEP_NAME}.log"
+fs.mkdirSync OUT_DIR, {recursive:true}
+fs.mkdirSync LOG_DIR, {recursive:true}
+
+# -------------------------------------------------------------------
+# 3) Logging
+# -------------------------------------------------------------------
+LOG_PATH = path.join LOG_DIR, "#{STEP_NAME}.log"
 log = (msg) ->
   stamp = new Date().toISOString().replace('T',' ').replace('Z','')
   line  = "[#{stamp}] #{msg}"
-  fs.appendFileSync logPath, line + os.EOL, 'utf8'
+  try fs.appendFileSync LOG_PATH, line + os.EOL, 'utf8' catch e then null
   console.log line
 
-# --- Parameters ---
-BASE      = PARAMS.base or CFG.web.base
+# -------------------------------------------------------------------
+# 4) Parameters
+# -------------------------------------------------------------------
+BASE      = PARAMS.base or RUN_CFG.base or 'localhost'
 START_URL = "https://#{BASE}/"
-USER_AGENT = PARAMS.user_agent or CFG.web.user_agent or 'Mozilla/5.0'
-TIMEOUT   = PARAMS.request_timeout or CFG.web.request_timeout or 15000
-PAUSE_SEC = PARAMS.pause_sec or CFG.web.pause_sec or 0.5
-SEED      = PARAMS.seed or CFG.run.seed or 42
-VALID_FRAC= PARAMS.valid_fraction or CFG.web.valid_fraction or 0.1
+USER_AGENT = PARAMS.user_agent or 'Mozilla/5.0'
+TIMEOUT   = PARAMS.request_timeout or 15000
+PAUSE_SEC = PARAMS.pause_sec or 0.5
+VALID_FRAC= PARAMS.valid_fraction or 0.1
+SEED      = parseInt RUN_CFG.seed or 42
 
 # Word budgets
-MIN_STORY_WORDS        = PARAMS.min_story_words        or CFG.web.min_story_words        or 50
-MIN_PROMPT_WORDS       = PARAMS.min_prompt_words       or CFG.web.min_prompt_words       or 40
-MAX_PROMPT_WORDS       = PARAMS.max_prompt_words       or CFG.web.max_prompt_words       or 200
-MIN_COMPLETION_WORDS   = PARAMS.min_completion_words   or CFG.web.min_completion_words   or 30
-MAX_COMPLETION_WORDS   = PARAMS.max_completion_words   or CFG.web.max_completion_words   or 200
-MAX_EXAMPLES_PER_STORY = PARAMS.max_examples_per_story or CFG.web.max_examples_per_story or 6
-MAX_PAGES              = PARAMS.max_pages or 5000
+MIN_STORY_WORDS        = PARAMS.min_story_words        or 50
+MIN_PROMPT_WORDS       = PARAMS.min_prompt_words       or 40
+MAX_PROMPT_WORDS       = PARAMS.max_prompt_words       or 200
+MIN_COMPLETION_WORDS   = PARAMS.min_completion_words   or 30
+MAX_COMPLETION_WORDS   = PARAMS.max_completion_words   or 200
+MAX_EXAMPLES_PER_STORY = PARAMS.max_examples_per_story or 6
+MAX_PAGES              = PARAMS.max_pages or 1000
 
-# --- Helpers ---
+# -------------------------------------------------------------------
+# 5) Helpers
+# -------------------------------------------------------------------
 sleep = (ms) -> new Promise (resolve) -> setTimeout resolve, ms
 
 normalize_ws = (s) ->
@@ -135,8 +162,7 @@ discover_all_html = async (start) ->
 
 extract_story = (html) ->
   $ = cheerio.load html
-  h2 = $('h2').eq(1)
-  title = h2.text().trim() or $('title').text().trim() or 'Untitled'
+  title = $('h2').eq(1).text().trim() or $('title').text().trim() or 'Untitled'
   div = $('#bloviation')
   return [title,''] unless div.length
   [title, demojibake(div.text().trim())]
@@ -181,8 +207,7 @@ build_continuations = (doc_id, title, text, page_url) ->
   exs
 
 sha256_file = (p) ->
-  data = fs.readFileSync p
-  crypto.createHash('sha256').update(data).digest('hex')
+  crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex')
 
 count_lines_bytes = (p) ->
   data = fs.readFileSync p
@@ -203,9 +228,11 @@ summarize_lengths = (p, field) ->
   p95 = lens[Math.floor(0.95*(n-1))] or lens[n-1]
   {n, len_min:lens[0], len_med:lens[Math.floor(n/2)], len_95:p95, len_max:lens[n-1]}
 
-# --- Main ---
+# -------------------------------------------------------------------
+# 6) Main
+# -------------------------------------------------------------------
 main = ->
-  log "Crawling site-local HTML: #{START_URL}"
+  log "🌐 Crawling #{START_URL}"
   pages = await discover_all_html START_URL
   log "Fetched #{pages.length} pages"
 
@@ -217,7 +244,6 @@ main = ->
     exs = build_continuations slug, title, story, page_url
     all_examples.push ex for ex in exs
 
-  # Deduplicate
   dedup = new Map()
   for ex in all_examples
     key = "#{ex.meta.doc_id}|#{ex.prompt.slice(0,2000)}"
@@ -241,60 +267,55 @@ main = ->
   write_jsonl VALID_JSONL, valid
   log "[OK] Wrote train.jsonl (#{train.length}), valid.jsonl (#{valid.length})"
 
-  # --- Metadata ---
-  CONTRACT_PATH = path.join OUT_DIR, CFG.data?.contract or 'data_contract.json'
-  CATALOG_PATH  = path.join OUT_DIR, CFG.data?.catalog  or 'data_catalog.json'
-  REPORT_PATH   = path.join OUT_DIR, CFG.data?.report   or 'data_report.json'
-
-  probeLine = fs.readFileSync(TRAIN_JSONL,'utf8').split('\n').find((l)->l.trim())
-  probe = if probeLine then JSON.parse(probeLine) else {}
-  if 'prompt' of probe and 'completion' of probe
-    mode='sft'; target_field='completion'; schema_fields={prompt:'string',completion:'string'}
-  else if 'text' of probe
-    mode='plain'; target_field='text'; schema_fields={text:'string'}
-  else
-    log "[FATAL] Could not infer dataset schema"; process.exit 2
-
   created = new Date().toISOString().replace('T',' ').replace('Z','')
   [t_lines,t_bytes] = count_lines_bytes TRAIN_JSONL
   [v_lines,v_bytes] = count_lines_bytes VALID_JSONL
 
+  schema_fields = {prompt:'string', completion:'string'}
   contract =
     created_utc: created
     data_dir: OUT_DIR
     filenames:
-      train: chosen:path.basename(TRAIN_JSONL), resolved:TRAIN_JSONL
-      valid: chosen:path.basename(VALID_JSONL), resolved:VALID_JSONL
-    schema:
-      format:'jsonl'
-      fields:schema_fields
-    source:
-      mode:mode
-      target_field:target_field
-      origin:'web_crawl'
-
-  catalog =
-    created_utc: created
-    files:
-      train: path:TRAIN_JSONL, lines:t_lines, bytes:t_bytes, sha256:sha256_file TRAIN_JSONL
-      valid: path:VALID_JSONL, lines:v_lines, bytes:v_bytes, sha256:sha256_file VALID_JSONL
-    entries:
-      train: path:TRAIN_JSONL, stats:{num_valid_examples:t_lines,num_bytes:t_bytes}
-      valid: path:VALID_JSONL, stats:{num_valid_examples:v_lines,num_bytes:v_bytes}
+      train: {chosen:path.basename(TRAIN_JSONL), resolved:TRAIN_JSONL}
+      valid: {chosen:path.basename(VALID_JSONL), resolved:VALID_JSONL}
+    schema: {format:'jsonl', fields:schema_fields}
+    source: {mode:'sft', target_field:'completion', origin:'web_crawl'}
 
   report =
     created_utc: created
-    counts: train:t_lines, valid:v_lines
-    train_stats: summarize_lengths TRAIN_JSONL, target_field
-    valid_stats: summarize_lengths VALID_JSONL, target_field
-    target_field: target_field
-    schema_mode: mode
+    counts: {train:t_lines, valid:v_lines}
+    train_stats: summarize_lengths TRAIN_JSONL, 'completion'
+    valid_stats: summarize_lengths VALID_JSONL, 'completion'
+    target_field: 'completion'
+    schema_mode: 'sft'
+
+  catalog =
+    created_utc: created
+    data_dir: OUT_DIR
+    mode: 'sft'
+    target_field: 'completion'
+    schema: schema_fields
+    total_examples: {train:t_lines, valid:v_lines}
+    files:
+      train: {path:TRAIN_JSONL, lines:t_lines, bytes:t_bytes, sha256:sha256_file TRAIN_JSONL}
+      valid: {path:VALID_JSONL, lines:v_lines, bytes:v_bytes, sha256:sha256_file VALID_JSONL}
+    checksums:
+      contract: sha256_file CONTRACT_PATH
+      report:   sha256_file REPORT_PATH
 
   fs.writeFileSync CONTRACT_PATH, JSON.stringify(contract,null,2)
-  fs.writeFileSync CATALOG_PATH,  JSON.stringify(catalog,null,2)
   fs.writeFileSync REPORT_PATH,   JSON.stringify(report,null,2)
-  log "[INFO] Wrote contract/catalog/report to #{OUT_DIR}"
+  fs.writeFileSync CATALOG_PATH,  JSON.stringify(catalog,null,2)
+  log "[OK] Wrote contract/catalog/report"
+
+  try
+    if global.M? and typeof global.M.saveThis is 'function'
+      global.M.saveThis "done:#{STEP_NAME}", true
+      global.M.saveThis "#{STEP_NAME}:counts", {train:t_lines, valid:v_lines}
+  catch e
+    log "(memo skip) #{e.message}"
+
+  log "[INFO] Completed step #{STEP_NAME} successfully"
   process.exit 0
 
-# --- Run ---
 main()

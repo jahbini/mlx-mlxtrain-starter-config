@@ -31,6 +31,8 @@ fs        = require 'fs'
 path      = require 'path'
 yaml      = require 'js-yaml'
 { spawn } = require 'child_process'
+# NEW: CoffeeScript runtime for inline @step execution (backwards-compatible)
+CoffeeScript = require 'coffeescript'
 
 # ----------------------------
 # CLI + CWD
@@ -69,6 +71,17 @@ readCsv = (p) ->
     rows.push obj
   rows
 
+# NEW: tiny console hook so inline steps also log to files
+hookConsoleToFds = (logOutFd, logErrFd) ->
+  orig = { log: console.log, error: console.error }
+  outStream = fs.createWriteStream null, { fd: logOutFd }
+  errStream = fs.createWriteStream null, { fd: logErrFd }
+  console.log = (args...) -> outStream.write args.map((x)-> String(x)).join(' ') + '\n'
+  console.error = (args...) -> errStream.write args.map((x)-> String(x)).join(' ') + '\n'
+  ->  # return unhook fn
+    console.log = orig.log
+    console.error = orig.error
+
 # ----------------------------
 # Memo (same as runner)
 # ----------------------------
@@ -96,6 +109,45 @@ class Memo
   waitFor: (aList, andDo) ->
     dependants = ( @theLowdown(k).notifier for k in aList )
     Promise.all(dependants).then andDo
+
+# --- Reactive persistence for JSON and CSV memo keys -------------------------
+
+writeJSON = (p, obj) ->
+  fs.mkdirSync(path.dirname(p), {recursive:true})
+  fs.writeFileSync(p, JSON.stringify(obj, null, 2), 'utf8')
+
+writeCSV = (p, rows) ->
+  return unless rows?.length
+  keys = Object.keys(rows[0])
+  buf = [keys.join(',')]
+  for r in rows
+    vals = (String(r[k] or '').replace(/,/g, ';') for k in keys)
+    buf.push vals.join(',')
+  fs.mkdirSync(path.dirname(p), {recursive:true})
+  fs.writeFileSync(p, buf.join('\n'), 'utf8')
+
+Memo::enableFilePersistence = (baseDir = process.cwd()) ->
+  # JSON auto-writer
+  @regexListeners.push
+    regex: /\.json$/i
+    callback: (key, value) ->
+      dest = path.join(baseDir, key)
+      try
+        writeJSON dest, value
+        console.log "💾 Memo→JSON:", dest
+      catch e
+        console.error "❌ JSON write failed:", dest, e.message
+
+  # CSV auto-writer
+  @regexListeners.push
+    regex: /\.csv$/i
+    callback: (key, value) ->
+      dest = path.join(baseDir, key)
+      try
+        writeCSV dest, value
+        console.log "💾 Memo→CSV:", dest
+      catch e
+        console.error "❌ CSV write failed:", dest, e.message
 
 # ----------------------------
 # Config utilities
@@ -343,6 +395,38 @@ runCoffeeStep = (stepName, scriptPath, env, logOutFd, logErrFd) ->
     proc.on 'exit', (code) ->
       if code is 0 then resolve() else reject new Error("#{stepName} failed (#{code})")
 
+# NEW: detect @step declaration without changing old behavior
+isNewStyleStep = (scriptPath) ->
+  try
+    src = fs.readFileSync(scriptPath, 'utf8')
+    /\@step\s*=/.test(src)
+  catch e
+    false
+
+# NEW: inline executor for new-style steps (keeps logging to files)
+runCoffeeStepInline = (stepName, scriptPath, M, logOutFd, logErrFd) ->
+  new Promise (resolve, reject) ->
+    unhook = hookConsoleToFds(logOutFd, logErrFd)
+    try
+      src = fs.readFileSync(scriptPath, 'utf8')
+      sandbox = {}
+      CoffeeScript.run src, {sandbox}
+      step = sandbox.step
+      unless step?.action?
+        throw new Error "Missing @step.action in #{stepName}"
+      M.saveThis "status:#{stepName}", "running"
+      Promise.resolve(step.action(M)).then ->
+        M.saveThis "status:#{stepName}", "done"
+        unhook()
+        resolve()
+      .catch (err) ->
+        M.saveThis "status:#{stepName}", "failed"
+        unhook()
+        reject err
+    catch err
+      unhook()
+      reject err
+
 # ----------------------------
 # Single-run evaluator
 # ----------------------------
@@ -369,6 +453,9 @@ evaluateCurrentRun = (EXEC) ->
       console.log "#{n} depends_on: #{(d.depends_on or []).join(', ')}"
 
     M = new Memo()
+    M.enableFilePersistence(path.join(process.cwd(), 'eval_out'))
+    # NEW: expose the merged evaluation.yaml to memo for new-style steps
+    M.saveThis "evaluation.yaml", spec
 
     # Execute in topo order
     for name in order
@@ -377,7 +464,12 @@ evaluateCurrentRun = (EXEC) ->
       env = Object.assign({}, process.env,
         { CFG_OVERRIDE: evalYaml, STEP_NAME: name, EXEC }
       )
-      await runCoffeeStep(name, scriptPath, env, logOutFd, logErrFd)
+
+      if isNewStyleStep(scriptPath)
+        await runCoffeeStepInline(name, scriptPath, M, logOutFd, logErrFd)
+      else
+        await runCoffeeStep(name, scriptPath, env, logOutFd, logErrFd)
+
       M.saveThis "done:#{name}", true
 
     banner "🌟 Evaluation finished for current run."
