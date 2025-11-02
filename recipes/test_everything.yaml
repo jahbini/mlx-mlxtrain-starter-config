@@ -1,0 +1,34 @@
+run:
+  output_dir: .
+  data_dir: ./data
+
+step1_setup:
+  run: tests/step1_setup.coffee
+  depends_on: []
+  greeting: "Hello from tests runner"
+
+step2_transform:
+  run: tests/step2_transform.coffee
+  depends_on: [step1_setup]
+
+step3_table:
+  run: tests/step3_table.coffee
+  depends_on: [step2_transform]
+
+step4_wait:
+  run: tests/step4_wait.coffee
+  depends_on: [step3_table]
+
+step5_finalize:
+  run: tests/step5_finalize.coffee
+  depends_on: [step4_wait]
+
+test6_curl:
+  run: tests/step6_curl.coffee
+  depends_on: step5_finalize
+  desc: "Spawn a bash curl command"
+
+test7_python:
+  run: tests/step7_python.coffee
+  depends_on: test6_curl
+  desc: "Spawn a Python process"

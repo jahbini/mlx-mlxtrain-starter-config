@@ -4,9 +4,9 @@
 # ============================================================
 
 run:
-  output_dir: run
-  snapshot_dir: run/snapshots
-  data_dir: run/data
+  output_dir: .
+  snapshot_dir: ./snapshots
+  data_dir: ./data
   eval_dir: eval_out
   contract: contract.json
   catalog: catalog.json
@@ -16,7 +16,7 @@ run:
   format_policy: data/format_policy.json
   policy: generation_policy.json
   report: data_report.json
-  fused_dir: run/fused_model
+  fused_dir: ./fused_model
   generations: generations
   tokmeta: tokenizer_meta
   ablations: ablation_generations
@@ -24,7 +24,7 @@ run:
   analysis: analysis
 
 data:
-  output_dir: run/data
+  output_dir: ./data
   contract: data_contract.json
   catalog: data_catalog.json
   report: data_report.json
@@ -34,159 +34,3 @@ eval:
   policy: generation_policy.json
   generations: generations.jsonl
 
-# ============================================================
-# PIPELINE STEPS
-# ============================================================
-
-pipeline:
-
-  steps:
-
-    manifest:
-      run: scripts/00_manifest.py
-      params:
-        seed: 42
-
-    fetch_hf_dataset:
-      run: scripts/01_fetch_hf_dataset.py
-      params:
-        hf_dataset: asuender/motivational-quotes
-        subset: quotes
-        mode: sft
-        valid_fract: 0.02
-        min_words: 5
-        max_words: 60
-        seed: 42
-
-    prepare_prompts:
-      run: scripts/022_prepare_prompts.py
-      params:
-        valid_fraction: 0.02
-        min_words: 5
-        max_words: 60
-        template_name: plain_text_passthrough
-        stop_strings: ["</s>", "###", "Instruction:", "Response:"]
-        use_eos_token: true
-
-    prepare_experiments:
-      run: scripts/023_prepare_experiments.py
-      params:
-        contract: run/data/data_contract.json
-        epochs: 3
-        batch_size: 2
-        grad_accum: 8
-        max_seq_length: 512
-        learning_rate: 0.0002
-        bf16: true
-        iters_override: 10
-
-    prepare_data:
-      run: scripts/02_prepare_data.py
-
-    register:
-      run: scripts/031_register.py
-      params:
-        dataset_jsonl: run/data/train.jsonl
-
-    train:
-      run: scripts/03_train.py
-      params:
-        dry_run: false
-        only_model_id: ""
-        only_row: None
-        steps_per_report: 1000
-        steps_per_eval: 5000
-        val_batches: 1
-
-    fuse:
-      run: scripts/032_fuse.py
-      params:
-        do_fuse: true
-        q_bits: 4
-        q_group: 64
-        dtype: float16
-        dry_run: false
-
-    snapshot:
-      run: scripts/04_snapshot.py
-      params:
-        fused: fused/model
-        quant: quantized
-        max_new: 128
-        alt_seed: 7
-        n_shots: 3
-        min_words: 3
-        retries: 2
-        prompts:
-          - "Tell us who lives in the house of the three gunas."
-          - "Offer a short proverb on patience."
-          - "Give a hopeful saying for a widow."
-
-    examination:
-      run: scripts/042_examination.py
-      params:
-        ablations: ablation_generations
-        report: report.md
-        recreate: repro.sh
-        analysis: eos_analysis
-        summary: eos_summary
-        prompts:
-          - "Tell us who lives in the house of the three gunas."
-          - "Offer a short proverb on patience."
-          - "Give a hopeful saying for a widow."
-
-    # ------------------------------------------------------------
-    # Voice + KAG steps (CoffeeScript-native)
-    # ------------------------------------------------------------
-
-    extract_md_for_voice:
-      run: scripts/092_extract_md_for_voice.coffee
-      params:
-        input_md: your.md
-        valid_fraction: 0.1
-        min_story_words: 40
-
-    crawl_for_voice:
-      run: scripts/091_crawl_for_voice.coffee
-      params:
-        base: some_domain.com
-        output_dir: run/data
-        valid_fraction: 0.1
-        min_story_words: 50
-
-    crawl_for_voice_continuation:
-      run: scripts/093_crawl_for_voice_continuation.coffee
-      params:
-        base: some_domain.com
-        output_dir: run/data
-        valid_fraction: 0.1
-        min_story_words: 50
-        max_examples_per_story: 6
-
-    oracle_kag:
-      run: scripts/oracle_kag.coffee
-      params:
-        model: microsoft/Phi-3-mini-4k-instruct
-        input_md: your.md
-        prompt_template: "List {num_tags} emotional or archetypal themes present in this story:"
-        num_tags: 10
-        max_tokens: 200
-        output_dir: run/data
-        reinforce:
-          top_n: 15
-          min_global: 2
-
-    entropy:
-      run: scripts/115_entropy.coffee
-      params:
-        max_new_tokens: 128
-        stop_strings: ["\\n\\n", "==="]
-
-    pre_eval:
-      run: scripts/121_pre_eval.coffee
-
-    template:
-      run: scripts/999_template.coffee
-      params:
-        input: run/data/data_contract.json
-        output: run/data/template_output.json
