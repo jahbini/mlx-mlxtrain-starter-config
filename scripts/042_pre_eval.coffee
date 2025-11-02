@@ -1,14 +1,14 @@
+#!/usr/bin/env coffee
 ###
-  scripts/042_pre_eval.coffee
-  ------------------------------------------------------------
-  New-Style Step (reactive Memo version)
-  Pre-Evaluation Sanity Checker
-  - Reads eval_out/generations.jsonl (created by snapshot.py)
-  - Computes summary stats: empties, avg length, prompt coverage
-  - Emits memo entries:
-        "pre_eval:summary"         → summary object
-        "pre_eval_summary.json"    → summary object  (auto-saved)
-        "pre_eval_summary.csv"     → [summary] array (auto-saved)
+042_pre_eval.coffee — strict memo-aware version (2025)
+-------------------------------------------------------
+STEP — Pre-Evaluation Sanity Checker
+Reads eval_out/generations.jsonl
+Computes summary stats (empties, avg length, prompt coverage)
+Emits:
+  pre_eval:summary
+  pre_eval_summary.json
+  pre_eval_summary.csv
 ###
 
 fs   = require 'fs'
@@ -39,30 +39,29 @@ timestampUTC = ->
 # Step definition
 # ---------------------------------------------------------------------------
 @step =
-  name: "pre_eval"
   desc: "Pre-evaluation sanity check for generations.jsonl"
 
-  action: (M) ->
-    spec = M.theLowdown("evaluation.yaml")?.value
-    unless spec?
-      throw new Error "evaluation.yaml not in memo"
+  action: (M, stepName) ->
+    throw new Error "Missing stepName argument" unless stepName?
 
-    params = spec?.pre_eval?.params
-    unless params?
-      throw new Error "pre_eval.params missing in evaluation.yaml"
+    cfg = M.theLowdown("experiment.yaml")?.value or M.theLowdown("evaluation.yaml")?.value
+    unless cfg?
+      throw new Error "No config found in memo (experiment.yaml or evaluation.yaml)"
 
-    # Validate required parameters — may not invent defaults
+    stepCfg = cfg[stepName]
+    throw new Error "Missing config for '#{stepName}' in yaml" unless stepCfg?
+    params = stepCfg.params or {}
     for key in ['input_dir', 'output_dir']
-      unless params[key]? and params[key]?.length
-        throw new Error "❌ Missing required param pre_eval.params.#{key}"
+      unless params[key]? and params[key].length
+        throw new Error "Missing required param '#{key}' for step '#{stepName}'"
 
     inputDir  = params.input_dir
     outputDir = params.output_dir
-    fs.mkdirSync outputDir, {recursive:true}
+    fs.mkdirSync(outputDir, {recursive:true})
 
     GEN_PATH = path.join(inputDir, 'generations.jsonl')
     unless fs.existsSync(GEN_PATH)
-      throw new Error "❌ Missing #{GEN_PATH}. Did snapshot.py run?"
+      throw new Error "❌ Missing #{GEN_PATH} — snapshot step must run first."
 
     console.log "=== Pre-Eval starting ==="
     console.log "Input:", GEN_PATH
@@ -70,39 +69,33 @@ timestampUTC = ->
 
     rows = readJSONLines(GEN_PATH)
     total = rows.length
-    if total is 0
-      throw new Error "❌ No rows found; aborting pre-eval."
+    throw new Error "❌ No rows found; aborting pre-eval." if total is 0
 
-    empty = 0
-    tooShort = 0
-    words = []
-    prompts = new Set()
-
+    empty = 0; tooShort = 0; words = []; prompts = new Set()
     for r in rows
       g = (r.generation or r.output_text or '').trim()
-      w = g.split(/\s+/).length
+      w = g.split(/\s+/).filter((x)->x.length).length
       prompts.add(r.prompt or '')
       if g.length is 0 then empty++
       else if w < 5 then tooShort++
       else words.push(w)
 
     summary =
-      timestamp: timestampUTC()
+      timestamp_utc: timestampUTC()
       total_rows: total
       empty_count: empty
       too_short: tooShort
-      avg_words: mean(words).toFixed(2)
+      avg_words: Number(mean(words).toFixed(2))
       unique_prompts: prompts.size
-      empty_pct: (100 * empty / total).toFixed(1)
-      short_pct: (100 * tooShort / total).toFixed(1)
+      empty_pct: Number((100 * empty / total).toFixed(1))
+      short_pct: Number((100 * tooShort / total).toFixed(1))
 
     console.log "Summary:", summary
 
-    # --- Publish results to Memo (reactive persistence handles file writes)
     M.saveThis "pre_eval:summary", summary
     M.saveThis "pre_eval_summary.json", summary
     M.saveThis "pre_eval_summary.csv", [summary]
-    M.saveThis "status:pre_eval", "done"
+    M.saveThis "done:#{stepName}", true
 
     console.log "=== Pre-evaluation complete ==="
     return summary

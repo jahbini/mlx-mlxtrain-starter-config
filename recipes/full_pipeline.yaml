@@ -4,7 +4,7 @@
 manifest: {}
 
 fetch_hf_dataset:
-  depends_on: [manifest]
+  depends_on: []
 
 prepare_prompts:
   depends_on: [fetch_hf_dataset]

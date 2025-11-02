@@ -1,159 +1,157 @@
-# scripts/11_eos_analysis.py
-# STEP 11 — EOS Behavior Probe & Quick Analysis (JSONL-first)
-# Reads eval_out/generations.jsonl to avoid NaN coercion, computes stats,
-# and shows any rows that CSV parsing would have treated as NaN.
+#!/usr/bin/env coffee
+###
+011_metrics_eos.coffee — strict memo-aware version (2025)
+---------------------------------------------------------
+STEP — EOS Behavior Probe & Metrics Summary
+  • Reads eval_out/generations.jsonl
+  • Computes token diversity, length, EOS usage, memorization checks
+  • Aggregates by mode and writes summary CSV + JSON analysis
+  • Logs key console summaries
+###
 
-from __future__ import annotations
-import os, sys, json, re, statistics, pandas as pd
-from pathlib import Path
+fs       = require 'fs'
+path     = require 'path'
+yaml     = require 'js-yaml'
+crypto   = require 'crypto'
 
-# --- Config loader ---
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from config_loader import load_config
+@step =
+  desc: "Analyze EOS and lexical diversity from JSONL generations"
 
-# --- STEP-AWARE CONFIG ---
-CFG = load_config()
-STEP_NAME = os.environ["STEP_NAME"]
-STEP_CFG  = CFG[STEP_NAME]
-PARAMS    = STEP_CFG
+  action: (M, stepName) ->
 
-# Resolve paths (params > global cfg)
-OUT_DIR   = Path( CFG.data.output_dir); OUT_DIR.mkdir(exist_ok=True)
-EVAL_DIR  = Path(CFG.eval.output_dir); EVAL_DIR.mkdir(exist_ok=True)
-RUN_DIR   = Path( CFG.run.output_dir)
+    throw new Error "Missing stepName argument" unless stepName?
+    cfg = M?.theLowdown?('experiment.yaml')?.value
+    throw new Error "Missing experiment.yaml in memo" unless cfg?
 
-CONTRACT  = OUT_DIR / CFG.data.contract
-GEN_JSONL = EVAL_DIR / CFG.eval.generations + ".jsonl"
-GEN_CSV   = EVAL_DIR / CFG.eval.generations + ".csv"
-OUT_SUM   = EVAL_DIR / CFG.eval.summary + ".csv"
-OUT_JSON  = EVAL_DIR / CFG.eval.analysis + ".json"
+    stepCfg = cfg[stepName]
+    throw new Error "Missing step config for '#{stepName}'" unless stepCfg?
+    runCfg  = cfg['run']
+    dataCfg = cfg['data']
+    evalCfg = cfg['eval']
+    throw new Error "Missing required 'run', 'data', or 'eval' sections." unless runCfg? and dataCfg? and evalCfg?
 
-# --- Safety checks ---
-if not GEN_JSONL.exists():
-    raise SystemExit("Missing eval_out/generations.jsonl (run Step 10).")
-if not CONTRACT.exists():
-    raise SystemExit("Missing data_contract.json (from Step 2).")
+    DATA_DIR  = path.resolve(runCfg.data_dir)
+    EVAL_DIR  = path.resolve(evalCfg.output_dir or path.join(DATA_DIR, 'eval_out'))
+    CONTRACT  = path.join(DATA_DIR, dataCfg.contract or 'data_contract.json')
+    GEN_JSONL = path.join(EVAL_DIR, "#{evalCfg.generations or 'generations'}.jsonl")
+    OUT_SUM   = path.join(EVAL_DIR, "#{evalCfg.summary or 'summary'}.csv")
+    OUT_JSON  = path.join(EVAL_DIR, "#{evalCfg.analysis or 'analysis'}.json")
+    fs.mkdirSync(EVAL_DIR, {recursive:true})
 
-# ---- Load generations from JSONL (authoritative) ----
-rows = []
-with GEN_JSONL.open("r", encoding="utf-8") as f:
-    for line in f:
-        if line.strip():
-            rows.append(json.loads(line))
-df = pd.DataFrame(rows)
+    unless fs.existsSync(GEN_JSONL)
+      throw new Error "Missing generations.jsonl (run snapshot step first)."
+    unless fs.existsSync(CONTRACT)
+      throw new Error "Missing data_contract.json (from prepare_data step)."
 
-# ---- (Optional) CSV diagnostics ----
-csv_missing = pd.DataFrame()
-if GEN_CSV.exists():
-    df_csv = pd.read_csv(GEN_CSV, keep_default_na=False, na_filter=False)
-    if len(df_csv) != len(df):
-        csv_missing = pd.concat([df, df_csv]).drop_duplicates(keep=False)
+    # --- Helpers ---------------------------------------------------
+    readJSONL = (p) ->
+      rows = []
+      for line in fs.readFileSync(p, 'utf8').split(/\r?\n/)
+        if line.trim().length
+          try
+            rows.push JSON.parse(line)
+          catch e
+            console.warn "(skip bad JSONL)", e.message
+      rows
 
-# ----- Helpers -----
-def word_count(s: str) -> int: return len(s.split())
-def ends_with_terminator(s: str) -> bool: return bool(re.search(r"[.!?…]$", s.strip()))
-def has_trailing_whitespace(s: str) -> bool: return len(s) > 0 and s[-1].isspace()
-def distinct_n(tokens, n=1):
-    if len(tokens) < n: return 0.0
-    ngrams = set(tuple(tokens[i:i+n]) for i in range(len(tokens)-n+1))
-    return len(ngrams) / max(1, (len(tokens)-n+1))
+    endsWithTerm = (s) -> /[.!?…]$/.test(s.trim())
+    hasTrailingWS = (s) -> s.length > 0 and /\s$/.test(s)
+    distinctN = (tokens, n=1) ->
+      return 0.0 if tokens.length < n
+      grams = new Set()
+      for i in [0..tokens.length-n]
+        grams.add tokens.slice(i, i+n).join(' ')
+      grams.size / Math.max(1, tokens.length-n+1)
 
-# ----- Load training examples for memorization checks -----
-c = json.loads(CONTRACT.read_text(encoding="utf-8"))
-train_path = Path(c["filenames"]["train"]["resolved"])
-text_field = next((k for k,v in c["schema"]["fields"].items() if str(v).lower()=="string"), "text")
+    wordCount = (s) -> (s.trim().split(/\s+/)).length
 
-train_texts = []
-with train_path.open("r", encoding="utf-8") as f:
-    for line in f:
-        try:
-            obj = json.loads(line)
-            t = obj.get(text_field, "")
-            if isinstance(t, str):
-                train_texts.append(t.strip())
-        except Exception:
-            pass
-train_blob = "\n\n".join(train_texts)
-train_set = set(train_texts)
+    # --- Load generations + contract + train corpus ----------------
+    rows = readJSONL(GEN_JSONL)
+    contract = JSON.parse(fs.readFileSync(CONTRACT, 'utf8'))
+    trainPath = path.resolve(contract?.filenames?.train?.resolved or '')
+    textField = Object.keys(contract?.schema?.fields or {}).find((k)-> String(contract.schema.fields[k]).toLowerCase() is 'string') or 'text'
 
-# ----- Per-row metrics -----
-def row_metrics(r):
-    gen = str(r.get("generation", ""))
-    toks = gen.split()
-    d1 = distinct_n(toks, 1); d2 = distinct_n(toks, 2)
-    exact_mem = gen.strip() in train_set
-    substr_mem = (not exact_mem) and (len(gen.strip()) >= 20) and (gen.strip() in train_blob)
-    return {
-        **r,
-        "len_chars": len(gen),
-        "len_words": word_count(gen),
-        "ends_sentence": int(ends_with_terminator(gen)),
-        "ends_whitespace": int(has_trailing_whitespace(gen)),
-        "distinct1": round(d1, 4),
-        "distinct2": round(d2, 4),
-        "memorized_exact": int(exact_mem),
-        "memorized_substring": int(substr_mem),
-    }
+    trainLines = []
+    if fs.existsSync(trainPath)
+      for line in fs.readFileSync(trainPath, 'utf8').split(/\r?\n/)
+        try
+          obj = JSON.parse(line)
+          t = obj[textField]
+          if typeof t is 'string' and t.trim().length
+            trainLines.push t.trim()
+        catch e then continue
 
-m = pd.DataFrame([row_metrics(r) for r in df.to_dict(orient="records")])
+    trainBlob = trainLines.join('\n\n')
+    trainSet  = new Set(trainLines)
 
-# ----- Aggregate by mode -----
-agg = (m.groupby("mode")
-         .agg(
-             n=("generation","count"),
-             avg_len_chars=("len_chars","mean"),
-             med_len_chars=("len_chars","median"),
-             avg_len_words=("len_words","mean"),
-             sent_end_rate=("ends_sentence","mean"),
-             trailing_ws_rate=("ends_whitespace","mean"),
-             distinct1_mean=("distinct1","mean"),
-             distinct2_mean=("distinct2","mean"),
-             mem_exact_rate=("memorized_exact","mean"),
-             mem_sub_rate=("memorized_substring","mean"),
-           )
-         .reset_index())
+    # --- Per-row metrics -------------------------------------------
+    perRow = []
+    for r in rows
+      g = String(r.generation or '')
+      toks = g.trim().split(/\s+/)
+      d1 = distinctN(toks,1); d2 = distinctN(toks,2)
+      exactMem = trainSet.has(g.trim())
+      substrMem = (not exactMem) and g.trim().length >= 20 and trainBlob.includes(g.trim())
+      perRow.push Object.assign {}, r,
+        len_chars: g.length
+        len_words: wordCount(g)
+        ends_sentence: if endsWithTerm(g) then 1 else 0
+        ends_whitespace: if hasTrailingWS(g) then 1 else 0
+        distinct1: Number(d1.toFixed(4))
+        distinct2: Number(d2.toFixed(4))
+        memorized_exact: if exactMem then 1 else 0
+        memorized_substring: if substrMem then 1 else 0
 
-for col in ["avg_len_chars","med_len_chars","avg_len_words","sent_end_rate","trailing_ws_rate",
-            "distinct1_mean","distinct2_mean","mem_exact_rate","mem_sub_rate"]:
-    if col in agg.columns:
-        agg[col] = agg[col].map(lambda x: round(float(x), 4))
+    # --- Aggregate by mode -----------------------------------------
+    groupByMode = {}
+    for r in perRow
+      m = r.mode or 'unknown'
+      groupByMode[m] ?= []
+      groupByMode[m].push(r)
 
-# ----- Per-prompt sample table -----
-def sample_table(df_in: pd.DataFrame, n=1):
-    out_rows = []
-    for prompt, g in df_in.groupby("prompt"):
-        for mode, gg in g.groupby("mode"):
-            for _, rr in gg.head(n).iterrows():
-                out_rows.append({"prompt": prompt, "mode": mode, "generation": rr["generation"]})
-    return pd.DataFrame(out_rows)
+    aggRows = []
+    for mode, arr of Object.entries(groupByMode)
+      n = arr.length
+      avg = (key) -> arr.reduce(((a,b)->a+(b[key] or 0)),0)/Math.max(1,n)
+      med = (key) ->
+        vals = arr.map((r)->r[key]).sort((a,b)->a-b)
+        vals[Math.floor(vals.length/2)] or 0
+      aggRows.push
+        mode: mode
+        n: n
+        avg_len_chars: Number(avg('len_chars').toFixed(2))
+        med_len_chars: Number(med('len_chars').toFixed(2))
+        avg_len_words: Number(avg('len_words').toFixed(2))
+        sent_end_rate: Number(avg('ends_sentence').toFixed(4))
+        trailing_ws_rate: Number(avg('ends_whitespace').toFixed(4))
+        distinct1_mean: Number(avg('distinct1').toFixed(4))
+        distinct2_mean: Number(avg('distinct2').toFixed(4))
+        mem_exact_rate: Number(avg('memorized_exact').toFixed(4))
+        mem_sub_rate: Number(avg('memorized_substring').toFixed(4))
 
-preview = sample_table(m, n=1)
+    # --- Save summary CSV ------------------------------------------
+    csvOut = ["mode,n,avg_len_chars,med_len_chars,avg_len_words,sent_end_rate,trailing_ws_rate,distinct1_mean,distinct2_mean,mem_exact_rate,mem_sub_rate"]
+    for r in aggRows
+      line = [r.mode,r.n,r.avg_len_chars,r.med_len_chars,r.avg_len_words,r.sent_end_rate,r.trailing_ws_rate,r.distinct1_mean,r.distinct2_mean,r.mem_exact_rate,r.mem_sub_rate].join(',')
+      csvOut.push(line)
+    fs.writeFileSync(OUT_SUM, csvOut.join('\n'), 'utf8')
 
-# ----- Save outputs -----
-OUT_SUM.parent.mkdir(parents=True, exist_ok=True)
-agg.to_csv(OUT_SUM, index=False)
+    # --- JSON analysis ---------------------------------------------
+    analysis =
+      created_utc: new Date().toISOString().replace(/\.\d+Z$/,'Z')
+      by_mode: aggRows
+      notes: [
+        "JSONL used as ground truth (avoids NaN coercion).",
+        "distinct* = lexical diversity over whitespace tokens.",
+        "memorized_* = match or substring from training corpus."
+      ]
+    fs.writeFileSync(OUT_JSON, JSON.stringify(analysis, null, 2), 'utf8')
 
-analysis = {
-    "created_utc": __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()),
-    "by_mode": agg.to_dict(orient="records"),
-    "notes": [
-        "JSONL is used as source of truth to avoid NaN coercion from CSV parsing.",
-        "distinct* ~ lexical diversity over whitespace tokens.",
-        "memorized_* checks generation against training set (exact / long substring).",
-    ],
-}
-OUT_JSON.write_text(json.dumps(analysis, indent=2), encoding="utf-8")
+    # --- Console preview -------------------------------------------
+    console.log "=== EOS / OUTPUT ANALYSIS (by mode) ==="
+    for r in aggRows
+      console.log "#{r.mode}: len_words=#{r.avg_len_words}, EOS=#{r.sent_end_rate}, distinct2=#{r.distinct2_mean}, memorized=#{r.mem_exact_rate}"
 
-# ----- Console summary -----
-print("=== EOS / OUTPUT ANALYSIS (by mode) [JSONL] ===")
-print(agg.to_string(index=False))
-
-print("\n=== SAMPLE OUTPUTS (1 per prompt×mode) ===")
-for _, row in preview.iterrows():
-    print(f"\n[{row['mode']}] {row['prompt']}\n→ {row['generation']}")
-
-if not csv_missing.empty:
-    print("\n[CSV diagnostic] These rows mismatch when parsing CSV with defaults; JSONL kept them:")
-    print(csv_missing[["mode","prompt","generation"]].head(6))
-
-print(f"\nWrote: {OUT_SUM} and {OUT_JSON}")
+    M.saveThis "metrics:analysis", analysis
+    M.saveThis "done:#{stepName}", true
+    return

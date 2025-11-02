@@ -1,174 +1,176 @@
+#!/usr/bin/env coffee
 ###
-  032_fuse.coffee
-  ----------------
-  Fuse and Quantize Models (MLX pipeline)
-  ✅ Fully deterministic, idempotent
-  ✅ Logs to <data_dir>/logs/032_fuse.log
-  ✅ Updates artifacts.json with fused and quantized directories
+032_fuse.coffee — strict memo-aware version (2025)
+--------------------------------------------------
+STEP — Fuse and Quantize Models (MLX pipeline)
+  • Reads artifacts.json
+  • Optionally fuses adapter + base
+  • Quantizes fused model to mlx
+  • Updates artifacts.json
+  • Logs to <data_dir>/logs/032_fuse.log
 ###
 
-fs        = require 'fs'
-path      = require 'path'
-yaml      = require 'js-yaml'
-crypto    = require 'crypto'
-shlex     = require 'shell-quote'
-child     = require 'child_process'
-shutil    = require 'fs-extra'
+fs      = require 'fs'
+path    = require 'path'
+crypto  = require 'crypto'
+child   = require 'child_process'
+shlex   = require 'shell-quote'
+shutil  = require 'fs-extra'
 
-# --- STEP-AWARE CONFIG ---
-CFG_PATH  = process.env.CFG_OVERRIDE or path.join(process.cwd(), 'experiment.yaml')
-STEP_NAME = process.env.STEP_NAME or 'fuse'
-cfgFull   = yaml.load(fs.readFileSync(CFG_PATH, 'utf8'))
-STEP_CFG  = cfgFull[STEP_NAME] or {}
-RUN_CFG   = cfgFull['run'] or {}
+@step =
+  desc: "Fuse and quantize models, update artifacts.json"
 
-RUN_DIR   = path.resolve(RUN_CFG.output_dir or 'run')
-DATA_DIR  = path.resolve(RUN_CFG.data_dir or 'data')
-ARTIFACTS = path.join(DATA_DIR, RUN_CFG.artifacts or 'artifacts.json')
-LOG_DIR   = path.join(DATA_DIR, 'logs')
-fs.mkdirSync(LOG_DIR, {recursive:true})
-LOG_PATH  = path.join(LOG_DIR, "#{STEP_NAME}.log")
+  action: (M, stepName) ->
 
-# --- Logging ---
-log = (msg) ->
-  stamp = new Date().toISOString().replace('T',' ').replace(/\.\d+Z$/,'')
-  line  = "[#{stamp}] #{msg}"
-  fs.appendFileSync(LOG_PATH, line + "\n")
-  console.log(line)
+    throw new Error "Missing stepName argument" unless stepName?
+    cfg = M?.theLowdown?('experiment.yaml')?.value
+    throw new Error "Missing experiment.yaml in memo" unless cfg?
 
-# --- Controls ---
-DO_FUSE = !!STEP_CFG.do_fuse
-Q_BITS  = parseInt(STEP_CFG.q_bits or 4)
-Q_GROUP = parseInt(STEP_CFG.q_group or 32)
-DTYPE   = STEP_CFG.dtype or 'float16'
-DRY_RUN = !!STEP_CFG.dry_run
+    stepCfg = cfg[stepName]
+    throw new Error "Missing step config for '#{stepName}'" unless stepCfg?
+    runCfg  = cfg['run']
+    throw new Error "Missing 'run' section in experiment.yaml" unless runCfg?
 
-# --- Utilities ---
-sha256File = (p) ->
-  h = crypto.createHash('sha256')
-  fd = fs.openSync(p, 'r')
-  buf = Buffer.alloc(1024*1024)
-  loop
-    bytes = fs.readSync(fd, buf, 0, buf.length, null)
-    break if bytes is 0
-    h.update(buf.subarray(0, bytes))
-  fs.closeSync(fd)
-  h.digest('hex')
+    # --- Required keys ---
+    for k in ['data_dir','output_dir','artifacts']
+      throw new Error "Missing required run.#{k}" unless k of runCfg
 
-listFiles = (root) ->
-  out = []
-  return out unless fs.existsSync(root)
-  for file of fs.readdirSync(root)
-    full = path.join(root, file)
-    stats = fs.statSync(full)
-    if stats.isDirectory()
-      out = out.concat(listFiles(full))
-    else
-      out.push
-        path: path.resolve(full)
-        rel: path.relative(root, full)
-        bytes: stats.size
-        sha256: sha256File(full)
-        mtime_utc: new Date(stats.mtime).toISOString().replace(/\.\d+Z$/,'Z')
-  out
+    DATA_DIR  = path.resolve(runCfg.data_dir)
+    OUT_DIR   = path.resolve(runCfg.output_dir)
+    ARTIFACTS = path.join(DATA_DIR, runCfg.artifacts)
+    LOG_DIR   = path.join(DATA_DIR, 'logs')
+    fs.mkdirSync(LOG_DIR, {recursive:true})
+    LOG_PATH  = path.join(LOG_DIR, "#{stepName}.log")
 
-runCmd = (cmd) ->
-  log "[MLX] #{cmd}"
-  if DRY_RUN
-    log "DRY_RUN=True → not executing."
-    return 0
-  try
-    child.execSync(cmd, {stdio:'inherit'})
-    return 0
-  catch e
-    return e.status or 1
+    log = (msg) ->
+      stamp = new Date().toISOString().replace('T',' ').replace(/\.\d+Z$/,'')
+      line  = "[#{stamp}] #{msg}"
+      fs.appendFileSync(LOG_PATH, line + "\n")
+      console.log line
 
-# --- Load artifacts registry ---
-unless fs.existsSync(ARTIFACTS)
-  console.error "artifacts.json not found. Run training first."
-  process.exit(1)
+    # --- Controls ---
+    DO_FUSE = !!stepCfg.do_fuse
+    Q_BITS  = parseInt(stepCfg.q_bits or 4)
+    Q_GROUP = parseInt(stepCfg.q_group or 32)
+    DTYPE   = stepCfg.dtype or 'float16'
+    DRY_RUN = !!stepCfg.dry_run
 
-registry = JSON.parse(fs.readFileSync(ARTIFACTS, 'utf8'))
-runs = registry.runs or []
-if runs.length is 0
-  console.error "No runs found in artifacts.json."
-  process.exit(1)
+    sha256File = (p) ->
+      h = crypto.createHash('sha256')
+      fd = fs.openSync(p, 'r')
+      buf = Buffer.alloc(1024*1024)
+      loop
+        bytes = fs.readSync(fd, buf, 0, buf.length, null)
+        break if bytes is 0
+        h.update(buf.subarray(0, bytes))
+      fs.closeSync(fd)
+      h.digest('hex')
 
-updated = false
-py = shlex.quote(process.argv[0])
+    listFiles = (root) ->
+      out = []
+      return out unless fs.existsSync(root)
+      for file in fs.readdirSync(root)
+        full = path.join(root, file)
+        stats = fs.statSync(full)
+        if stats.isDirectory()
+          out = out.concat(listFiles(full))
+        else
+          out.push
+            path: path.resolve(full)
+            rel: path.relative(root, full)
+            bytes: stats.size
+            sha256: sha256File(full)
+            mtime_utc: new Date(stats.mtime).toISOString().replace(/\.\d+Z$/,'Z')
+      out
 
-# --- Main Loop ---
-for entry in runs
-  modelId = entry.model_id
-  outputDir  = path.resolve(entry.output_root)
-  adapterDir = path.resolve(entry.adapter_dir)
-  fusedDir   = entry.fused_dir or path.join(outputDir, 'fused', 'model')
+    runCmd = (cmd) ->
+      log "[MLX] #{cmd}"
+      if DRY_RUN
+        log "DRY_RUN=True → not executing."
+        return 0
+      try
+        child.execSync(cmd, {stdio:'inherit'})
+        return 0
+      catch e
+        return e.status or 1
 
-  # 1) FUSE ----------------------------------------------------------
-  if DO_FUSE and not fs.existsSync(fusedDir)
-    fs.mkdirSync(path.dirname(fusedDir), {recursive:true})
-    cmdFuse = "#{py} -m mlx_lm fuse --model #{shlex.quote(modelId)} " +
-              "--adapter-path #{shlex.quote(adapterDir)} " +
-              "--save-path #{shlex.quote(fusedDir)}"
-    log "=== FUSE ==="
-    rc = runCmd(cmdFuse)
-    if rc isnt 0
-      log "❌ Fuse failed for #{modelId}"
-      continue
-    entry.fused_dir = path.resolve(fusedDir)
-    entry.files ?= {}
-    entry.files.fused = listFiles(fusedDir)
-    updated = true
-  else if fs.existsSync(fusedDir)
-    entry.fused_dir = path.resolve(fusedDir)
-    entry.files ?= {}
-    entry.files.fused = listFiles(fusedDir)
+    unless fs.existsSync(ARTIFACTS)
+      throw new Error "Missing artifacts.json (run register first)."
 
-  unless fs.existsSync(fusedDir)
-    log "Skipping quantize for #{modelId}: fused_dir missing."
-    continue
+    registry = JSON.parse(fs.readFileSync(ARTIFACTS, 'utf8'))
+    runs = registry.runs or []
+    throw new Error "No runs found in artifacts.json." unless runs.length
 
-  # 2) QUANTIZE ------------------------------------------------------
-  qDir = path.join(outputDir, 'quantized')
-  if fs.existsSync(qDir)
-    log "Removing pre-existing quantized dir: #{qDir}"
-    shutil.removeSync(qDir)
+    updated = false
+    py = shlex.quote(process.argv[0])
 
-  cmdQ = "#{py} -m mlx_lm convert --hf-path #{shlex.quote(fusedDir)} " +
-         "--mlx-path #{shlex.quote(qDir)} " +
-         "--q-bits #{Q_BITS} --q-group-size #{Q_GROUP} " +
-         "--dtype #{shlex.quote(DTYPE)} -q"
-  log "=== QUANTIZE ==="
-  rc = runCmd(cmdQ)
-  if rc isnt 0
-    log "❌ Quantize failed for #{modelId}"
-    continue
+    for entry in runs
+      modelId = entry.model_id
+      outputDir  = path.resolve(entry.output_root)
+      adapterDir = path.resolve(entry.adapter_dir)
+      fusedDir   = entry.fused_dir or path.join(outputDir, 'fused', 'model')
 
-  entry.quantized_dir = path.resolve(qDir)
-  entry.quantize_bits = Q_BITS
-  entry.q_group_size  = Q_GROUP
-  entry.files ?= {}
-  entry.files.quantized = listFiles(qDir)
-  updated = true
+      # --- Fuse ------------------------------------------------------
+      if DO_FUSE and not fs.existsSync(fusedDir)
+        fs.mkdirSync(path.dirname(fusedDir), {recursive:true})
+        cmdFuse = "#{py} -m mlx_lm fuse --model #{shlex.quote(modelId)} " +
+                  "--adapter-path #{shlex.quote(adapterDir)} " +
+                  "--save-path #{shlex.quote(fusedDir)}"
+        log "=== FUSE #{modelId} ==="
+        rc = runCmd(cmdFuse)
+        if rc isnt 0
+          log "❌ Fuse failed for #{modelId}"
+          continue
+        entry.fused_dir = path.resolve(fusedDir)
+        entry.files ?= {}
+        entry.files.fused = listFiles(fusedDir)
+        updated = true
+      else if fs.existsSync(fusedDir)
+        entry.fused_dir = path.resolve(fusedDir)
+        entry.files ?= {}
+        entry.files.fused = listFiles(fusedDir)
+      else
+        log "Skipping quantize: missing fused dir for #{modelId}"
+        continue
 
-# --- Save Updated Artifacts ---
-if updated
-  registry.updated_utc = new Date().toISOString().replace(/\.\d+Z$/,'Z')
-  fs.writeFileSync(ARTIFACTS, JSON.stringify(registry, null, 2), 'utf8')
+      # --- Quantize --------------------------------------------------
+      qDir = path.join(outputDir, 'quantized')
+      if fs.existsSync(qDir)
+        log "Removing existing quantized dir: #{qDir}"
+        shutil.removeSync(qDir)
 
-log "=== FUSE/QUANTIZE SUMMARY ==="
-log "Wrote: #{ARTIFACTS}"
-for entry in registry.runs or []
-  log "- #{entry.model_id}"
-  if entry.fused_dir?
-    log "   fused_dir: #{entry.fused_dir} (#{(entry.files?.fused?.length) or 0} files)"
-  if entry.quantized_dir?
-    log "   quantized_dir: #{entry.quantized_dir} (q#{entry.quantize_bits}, group=#{entry.q_group_size}) " +
-        "files=#{(entry.files?.quantized?.length) or 0}"
+      cmdQ = "#{py} -m mlx_lm convert --hf-path #{shlex.quote(fusedDir)} " +
+             "--mlx-path #{shlex.quote(qDir)} " +
+             "--q-bits #{Q_BITS} --q-group-size #{Q_GROUP} " +
+             "--dtype #{shlex.quote(DTYPE)} -q"
 
-# Optional memo save
-try
-  if global.M? and typeof global.M.saveThis is 'function'
-    global.M.saveThis 'fuse:artifacts', registry
-catch e
-  console.warn "(memo skip)", e.message
+      log "=== QUANTIZE #{modelId} ==="
+      rc = runCmd(cmdQ)
+      if rc isnt 0
+        log "❌ Quantize failed for #{modelId}"
+        continue
+
+      entry.quantized_dir = path.resolve(qDir)
+      entry.quantize_bits = Q_BITS
+      entry.q_group_size  = Q_GROUP
+      entry.files ?= {}
+      entry.files.quantized = listFiles(qDir)
+      updated = true
+
+    if updated
+      registry.updated_utc = new Date().toISOString().replace(/\.\d+Z$/,'Z')
+      fs.writeFileSync(ARTIFACTS, JSON.stringify(registry, null, 2), 'utf8')
+
+    log "=== FUSE/QUANTIZE SUMMARY ==="
+    log "Wrote: #{ARTIFACTS}"
+    for e in registry.runs or []
+      log "- #{e.model_id}"
+      if e.fused_dir?
+        log "   fused_dir: #{e.fused_dir} (#{(e.files?.fused?.length) or 0} files)"
+      if e.quantized_dir?
+        log "   quantized_dir: #{e.quantized_dir} (q#{e.quantize_bits}, group=#{e.q_group_size}) " +
+            "files=#{(e.files?.quantized?.length) or 0}"
+
+    M.saveThis "fuse:artifacts", registry
+    M.saveThis "done:#{stepName}", true
+    return

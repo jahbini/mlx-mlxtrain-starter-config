@@ -1,18 +1,15 @@
 #!/usr/bin/env coffee
 ###
-080_prepare_outmd.coffee
-----------------------------------------
+080_prepare_outmd.coffee — strict memo-aware (2025)
+----------------------------------------------------
 STEP — Prepare Markdown Stories for Instruction Tuning
 
-Converts a markdown file (# headers split sections)
-into Alpaca-style JSONL for fine-tuning.
+Reads:
+  Markdown file with "# " headers separating stories
+Writes:
+  <run.data_dir>/<output_jsonl>
 
-Inputs:
-  your.md (from experiment.yaml or CFG)
-Outputs:
-  run/data/out_instruct.jsonl
-
-Config block example:
+Config (experiment.yaml):
   prepare_outmd:
     run: scripts/080_prepare_outmd.coffee
     input_md: your/your.md
@@ -27,76 +24,80 @@ yaml = require 'js-yaml'
 
 process.env.NODE_NO_WARNINGS = 1
 
-# --- Config loader ----------------------------------------------------
+# --- STEP-AWARE CONFIG -----------------------------------------------
 STEP_NAME = process.env.STEP_NAME or 'prepare_outmd'
-CFG_PATH  = process.env.CFG_OVERRIDE or path.join process.cwd(), 'experiment.yaml'
+CFG_PATH  = process.env.CFG_OVERRIDE or path.join(process.cwd(), 'experiment.yaml')
 
-try
-  CFG_FULL = yaml.load fs.readFileSync(CFG_PATH, 'utf8')
-catch err
-  console.error "❌ Could not load #{CFG_PATH}: #{err.message}"
-  CFG_FULL = {}
+cfgFull = yaml.load(fs.readFileSync(CFG_PATH, 'utf8'))
+unless cfgFull?
+  throw new Error "❌ Failed to load #{CFG_PATH}"
 
-RUN_CFG  = CFG_FULL?.run or {}
-STEP_CFG = CFG_FULL?[STEP_NAME] or {}
+stepCfg = cfgFull[STEP_NAME]
+throw new Error "Missing step config for '#{STEP_NAME}' in experiment.yaml" unless stepCfg?
 
-DATA_DIR = path.resolve STEP_CFG.output_dir or RUN_CFG.data_dir or 'run/data'
-LOG_DIR  = path.resolve STEP_CFG.log_dir or path.join(DATA_DIR, 'logs')
-INPUT_MD = path.resolve STEP_CFG.input_md or RUN_CFG.stories or 'your/your.md'
-OUTPUT_JSONL = path.resolve DATA_DIR, STEP_CFG.output_jsonl or 'out_instruct.jsonl'
+runCfg  = cfgFull['run']
+throw new Error "Missing global 'run' section in experiment.yaml" unless runCfg?
 
-fs.mkdirSync DATA_DIR, {recursive:true}
-fs.mkdirSync LOG_DIR, {recursive:true}
+# --- Required parameters (NO defaults) -------------------------------
+for key in ['output_dir','input_md','output_jsonl']
+  unless stepCfg[key]? and String(stepCfg[key]).length
+    throw new Error "Missing required key: #{STEP_NAME}.#{key} in experiment.yaml"
 
-# --- Logging -----------------------------------------------------------
-LOG_PATH = path.join LOG_DIR, "#{STEP_NAME}.log"
+DATA_DIR = path.resolve(stepCfg.output_dir)
+INPUT_MD = path.resolve(stepCfg.input_md)
+OUTPUT_JSONL = path.resolve(DATA_DIR, stepCfg.output_jsonl)
+LOG_DIR  = path.join(DATA_DIR, 'logs')
+
+fs.mkdirSync(DATA_DIR, {recursive:true})
+fs.mkdirSync(LOG_DIR, {recursive:true})
+
+# --- Logging ----------------------------------------------------------
+LOG_PATH = path.join(LOG_DIR, "#{STEP_NAME}.log")
 log = (msg) ->
-  stamp = new Date().toISOString().replace('T',' ').replace('Z','')
+  stamp = new Date().toISOString().replace('T',' ').replace(/\.\d+Z$/,'')
   line  = "[#{stamp}] #{msg}"
-  try fs.appendFileSync LOG_PATH, line + os.EOL, 'utf8' catch e then null
+  try fs.appendFileSync(LOG_PATH, line + os.EOL, 'utf8') catch e then null
   console.log line
 
-# --- Template & Helpers ------------------------------------------------
+# --- Template & Helpers ----------------------------------------------
 PROMPT_TEMPLATE = """
-You are St. John's Jim, a myth-weaving, bar-stool Buddha of the Pacific Northwest.
+You are St. John's Jim — a myth-weaving, bar-stool Buddha of the Pacific Northwest.
 Tell a new short story in your usual voice. Base it on this seed:
 """
 
-extract_snippets = (md_text) ->
-  md_text.split('# ').map((chunk) -> chunk.trim()).filter (c) -> c.length > 0
+extract_snippets = (mdText) ->
+  mdText.split('# ').map((chunk)-> chunk.trim()).filter (c)-> c.length > 0
 
 format_as_alpaca = (chunk) ->
-  instruction = PROMPT_TEMPLATE + chunk.slice(0, 200) + '...'
   {
-    instruction: instruction
+    instruction: PROMPT_TEMPLATE + chunk.slice(0,200) + '...'
     input: ''
     output: chunk.trim()
   }
 
-# --- Main --------------------------------------------------------------
+# --- Main -------------------------------------------------------------
 main = ->
   log "Starting step: #{STEP_NAME}"
   log "Input: #{INPUT_MD}"
   log "Output: #{OUTPUT_JSONL}"
 
-  unless fs.existsSync INPUT_MD
-    log "[FATAL] Missing markdown: #{INPUT_MD}"
-    process.exit 1
+  unless fs.existsSync(INPUT_MD)
+    throw new Error "Missing markdown source: #{INPUT_MD}"
 
-  md_text = fs.readFileSync(INPUT_MD, 'utf8')
-  chunks  = extract_snippets md_text
+  mdText = fs.readFileSync(INPUT_MD, 'utf8')
+  chunks = extract_snippets(mdText)
   entries = (format_as_alpaca(c) for c in chunks)
 
-  out = fs.createWriteStream OUTPUT_JSONL, encoding:'utf8'
+  out = fs.createWriteStream(OUTPUT_JSONL, encoding:'utf8')
   count = 0
   for e in entries
-    out.write JSON.stringify(e) + '\n'
+    out.write(JSON.stringify(e) + '\n')
     count += 1
   out.end()
 
-  log "[OK] Wrote #{count} entries to #{OUTPUT_JSONL}"
+  log "[OK] Wrote #{count} entries → #{OUTPUT_JSONL}"
 
-  # Optional Memo signal
+  # --- Memo save -----------------------------------------------------
   try
     if global.M? and typeof global.M.saveThis is 'function'
       global.M.saveThis "done:#{STEP_NAME}", true
@@ -104,6 +105,6 @@ main = ->
   catch e
     log "(memo skip) #{e.message}"
 
-  process.exit 0
+  return count
 
 main()

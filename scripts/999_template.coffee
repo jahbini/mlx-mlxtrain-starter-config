@@ -1,111 +1,89 @@
 #!/usr/bin/env coffee
 ###
-999_template.coffee — Pipeline-Compliant Step Template (2025 Edition)
----------------------------------------------------------------------
+999_template.coffee — Pipeline-Compliant Step Template (Memo-Aware, 2025 Edition)
+---------------------------------------------------------------------------------
 
-Use this template for any new CoffeeScript pipeline step.
+Use this as the base for any new pipeline step.
 
-Principles:
-  • All paths and parameters come from config (default + override)
-  • Deterministic: same input + config → same output
-  • No CLI args
-  • Fails fast on bad inputs
-  • Logs go under <output>/logs/
-  • Designed for integration with the Memo system
+Design rules:
+  • Called inline by the pipeline runner (require + @step)
+  • Receives (M, stepName)
+  • No process.env access — reads from memo['experiment.yaml']
+  • Deterministic and self-contained
+  • Logs under <output>/logs/
+  • May safely write to memo for downstream use
 ###
 
 fs   = require 'fs'
 path = require 'path'
 
-# -------------------------------------------------------------------
-# 1) Load Config
-# -------------------------------------------------------------------
-{ load_config } = require '../config_loader'
+@step =
+  desc: "Boilerplate for new memo-aware steps"
 
-CFG       = load_config()
-STEP_NAME = process.env.STEP_NAME or '999_template'
-STEP_CFG  = CFG.pipeline?.steps?[STEP_NAME] or {}
-PARAMS    = STEP_CFG.params or {}
+  action: (M, stepName) ->
 
-# -------------------------------------------------------------------
-# 2) Directories
-# -------------------------------------------------------------------
-ROOT     = path.resolve process.env.EXEC or path.dirname(__dirname)
-OUT_DIR  = path.resolve PARAMS.output_dir or CFG.data.output_dir
-LOG_DIR  = path.join OUT_DIR, 'logs'
-fs.mkdirSync OUT_DIR, {recursive: true}
-fs.mkdirSync LOG_DIR, {recursive: true}
+    exp = M.theLowdown('experiment.yaml').value
+    runCfg  = exp?.run or {}
+    stepCfg = exp?[stepName] or {}
 
-INPUT_FILE  = path.resolve PARAMS.input or path.join(OUT_DIR, CFG.data.contract)
-OUTPUT_FILE = path.resolve PARAMS.output or path.join(OUT_DIR, "#{STEP_NAME}_output.json")
+    unless runCfg?.output_dir?
+      throw new Error "Missing 'run.output_dir' in experiment.yaml"
 
-# -------------------------------------------------------------------
-# 3) Logging utilities
-# -------------------------------------------------------------------
-LOG_PATH = path.join LOG_DIR, "#{STEP_NAME}.log"
+    OUT_DIR  = path.resolve(runCfg.output_dir)
+    LOG_DIR  = path.join(OUT_DIR, 'logs')
+    fs.mkdirSync OUT_DIR, {recursive:true}
+    fs.mkdirSync LOG_DIR, {recursive:true}
 
-log = (msg) ->
-  stamp = new Date().toISOString().replace('T',' ').replace(/\..+$/,'')
-  line  = "[#{stamp}] #{msg}"
-  fs.appendFileSync LOG_PATH, line + '\n', 'utf8'
-  console.log line
+    INPUT_FILE  = path.resolve(stepCfg.input or path.join(OUT_DIR, runCfg.contract))
+    OUTPUT_FILE = path.resolve(stepCfg.output or path.join(OUT_DIR, "#{stepName}_output.json"))
 
-write_json = (fpath, obj) ->
-  try
-    fs.writeFileSync fpath, JSON.stringify(obj, null, 2), 'utf8'
-    log "[OK] Wrote #{fpath}"
-  catch err
-    log "[FATAL] Could not write #{fpath}: #{err}"
-    process.exit 2
+    # --- Logging ---
+    LOG_PATH = path.join(LOG_DIR, "#{stepName}.log")
+    log = (msg) ->
+      stamp = new Date().toISOString().replace('T',' ').replace(/\..+$/,'')
+      line  = "[#{stamp}] #{msg}"
+      fs.appendFileSync LOG_PATH, line + '\n', 'utf8'
+      console.log line
 
-# -------------------------------------------------------------------
-# 4) Input validation
-# -------------------------------------------------------------------
-unless fs.existsSync INPUT_FILE
-  log "[FATAL] Missing required input file: #{INPUT_FILE}"
-  process.exit 1
+    write_json = (fpath, obj) ->
+      try
+        fs.writeFileSync fpath, JSON.stringify(obj, null, 2), 'utf8'
+        log "[OK] Wrote #{fpath}"
+      catch err
+        log "[FATAL] Could not write #{fpath}: #{err.message}"
+        throw err
 
-log "[INFO] Starting step '#{STEP_NAME}'"
-log "[INFO] Output directory: #{OUT_DIR}"
-log "[INFO] Step parameters: #{JSON.stringify PARAMS, null, 2}"
+    # --- Validation ---
+    unless fs.existsSync INPUT_FILE
+      log "[FATAL] Missing required input: #{INPUT_FILE}"
+      throw new Error "Missing input #{INPUT_FILE}"
 
-# -------------------------------------------------------------------
-# 5) Core Logic (replace this section for new steps)
-# -------------------------------------------------------------------
-processContract = (p) ->
-  try
-    raw  = fs.readFileSync p, 'utf8'
-    data = JSON.parse raw
-    result =
-      summary: "Contract includes #{Object.keys(data.filenames or {}).length} items"
-      timestamp: new Date().toISOString()
-      git_commit: CFG.run?.git_commit or 'unknown'
-    return result
-  catch err
-    log "[FATAL] Error processing contract: #{err}"
-    process.exit 1
+    log "[INFO] Starting step '#{stepName}'"
+    log "[INFO] Output dir: #{OUT_DIR}"
 
-# -------------------------------------------------------------------
-# 6) Execution
-# -------------------------------------------------------------------
-t0 = Date.now()
-result = processContract INPUT_FILE
-write_json OUTPUT_FILE, result
+    # --- Core Logic (replace this section) ---
+    processFile = (file) ->
+      raw  = fs.readFileSync file, 'utf8'
+      data = JSON.parse raw
+      result =
+        summary: "File has #{Object.keys(data).length} top-level keys"
+        timestamp: new Date().toISOString()
+      result
 
-# -------------------------------------------------------------------
-# 7) Memo / bookkeeping
-# -------------------------------------------------------------------
-try
-  if global.M? and typeof global.M.saveThis is 'function'
-    global.M.saveThis "#{STEP_NAME}:output", OUTPUT_FILE
-    log "[INFO] Memo recorded output file."
-catch err
-  log "[WARN] Memo integration failed: #{err}"
+    # --- Execution ---
+    t0 = Date.now()
+    result = processFile INPUT_FILE
+    write_json OUTPUT_FILE, result
 
-# -------------------------------------------------------------------
-# 8) Clean Exit
-# -------------------------------------------------------------------
-elapsed = ((Date.now() - t0)/1000).toFixed(2)
-log "[INFO] Step runtime: #{elapsed}s"
-log "[INFO] Completed step '#{STEP_NAME}' successfully"
-process.exit 0
+    # --- Memo bookkeeping ---
+    M.saveThis "#{stepName}:output_path", OUTPUT_FILE
+    M.saveThis "#{stepName}:result", result
+    M.saveThis "done:#{stepName}", true
+    log "[INFO] Memo entries recorded."
+
+    # --- Exit Summary ---
+    elapsed = ((Date.now() - t0)/1000).toFixed(2)
+    log "[INFO] Step runtime: #{elapsed}s"
+    log "[INFO] Completed step '#{stepName}' successfully"
+
+    return
