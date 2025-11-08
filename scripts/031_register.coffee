@@ -40,4 +40,27 @@ crypto = require 'crypto'
 
     console.log "Registered #{EXP_CSV} (#{lines.length - 1} row(s))"
     console.log "lock_hash =", hash
+    # Compute a stable hash for pipeline lock
+    hash = crypto.createHash('sha1').update(csv, 'utf8').digest('hex')
+    M.saveThis "lock_hash", hash
+    M.saveThis "register:experiments_csv", EXP_CSV
+
+    # --- ensure artifacts.json pointer exists ---
+    ART_JSON = runCfg.artifacts_json
+    registry =
+      created: Date.now()
+      runs: [
+        model_id: "init-000"
+        output_root: path.dirname(ART_JSON)
+        adapter_dir: path.join(path.dirname(ART_JSON), 'adapter')
+        fused_dir: path.join(path.dirname(ART_JSON), 'fused', 'model')
+      ]
+
+    M.saveThis ART_JSON, registry          # Memo auto-persists it
+    M.saveThis "register:artifacts_json", ART_JSON
+
+    M.saveThis "done:#{stepName}", true
+    console.log "Registered #{EXP_CSV} (#{lines.length - 1} row(s))"
+    console.log "lock_hash =", hash
     return
+

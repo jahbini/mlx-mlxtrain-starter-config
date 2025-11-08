@@ -28,7 +28,7 @@ run:
   generations: generations
   tokmeta: tokenizer_meta
   ablations: ablation_generations
-  artifacts: artifacts.json
+  artifacts: out/artifacts.json
   summary: summary
   analysis: analysis
 

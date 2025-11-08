@@ -15,6 +15,7 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Local data & outputs
+artifacts/
 data/
 data_report.json
 eval_out/

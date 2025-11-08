@@ -43,14 +43,14 @@ yaml      = require 'js-yaml'
     DATA_DIR = path.resolve(runCfg.data_dir)
     fs.mkdirSync(EVAL_DIR, {recursive:true})
 
-    ARTIFACTS_JSON = path.join(DATA_DIR, 'artifacts.json')
+    ARTIFACTS = runCfg.artifacts
     POLICY_FILE    = path.join(EVAL_DIR, 'policy.yaml')
     GEN_JSONL      = path.join(EVAL_DIR, 'generations.jsonl')
     TOK_PATH       = path.join(EVAL_DIR, 'entropy_tokens.jsonl')
     SUM_PATH       = path.join(EVAL_DIR, 'entropy_summary.csv')
 
     # --- Required files check ---
-    for f in [ARTIFACTS_JSON, GEN_JSONL]
+    for f in [ GEN_JSONL]
       unless fs.existsSync(f)
         throw new Error "Missing required input file: #{f}"
 
@@ -97,7 +97,7 @@ yaml      = require 'js-yaml'
 
     pick_artifact = (artifactsPath, policy) ->
       pref = policy.artifact_preference or ['quantized','fused','adapter']
-      data = JSON.parse(fs.readFileSync(artifactsPath, 'utf8'))
+      data = M.theLowdown artifactsPath
       runs = data.runs or []
       throw new Error "No runs in artifacts.json" unless runs.length
       cands = []
@@ -147,7 +147,7 @@ yaml      = require 'js-yaml'
     # -------------------------------------------------------------------
     policy = load_policy()
     prompts = load_prompts(GEN_JSONL)
-    [model_path, adapter_path, artifact_label] = pick_artifact(ARTIFACTS_JSON, policy)
+    [model_path, adapter_path, artifact_label] = pick_artifact(ARTIFACTS, policy)
 
     log "[INFO] Using model: #{model_path}"
     log "[INFO] Adapter: #{adapter_path or '(none)'}"

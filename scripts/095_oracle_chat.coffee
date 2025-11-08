@@ -34,11 +34,9 @@ readline  = require 'readline'
 
     DATA_DIR = path.resolve(runCfg.data_dir or 'run/data')
     EVAL_DIR = path.resolve(evalCfg?.output_dir or path.join(DATA_DIR, 'eval'))
-    ARTIFACTS_JSON = path.join(DATA_DIR, 'artifacts.json')
+    ARTIFACTS = runCfg.artifacts
     POLICY_FILE    = path.join(EVAL_DIR, 'policy.yaml')
 
-    unless fs.existsSync(ARTIFACTS_JSON)
-      throw new Error "Missing artifacts.json"
 
     load_policy = ->
       if fs.existsSync(POLICY_FILE)
@@ -48,7 +46,7 @@ readline  = require 'readline'
 
     pick_artifact = (artifactsPath, policy) ->
       pref = policy.artifact_preference or ['quantized','fused','adapter']
-      data = JSON.parse(fs.readFileSync(artifactsPath,'utf8'))
+      data = M.theLowdown artifactsPath
       runs = data.runs or []
       throw new Error "No runs in artifacts.json" unless runs.length
       cands = []
@@ -79,7 +77,7 @@ readline  = require 'readline'
     # Initialize
     # ----------------------------------------------------
     policy = load_policy()
-    [model_path, adapter_path, label] = pick_artifact(ARTIFACTS_JSON, policy)
+    [model_path, adapter_path, label] = pick_artifact(ARTIFACTS, policy)
 
     console.log "🧭 Oracle Chat using model=#{model_path}"
     console.log "Adapter=#{adapter_path or '(none)'}  Label=#{label}"

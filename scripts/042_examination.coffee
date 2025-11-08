@@ -37,7 +37,7 @@ textwrap = require 'textwrap'
     EVAL_DIR  = path.resolve(runCfg.eval_dir or path.join(OUT_DIR, 'eval_out'))
     fs.mkdirSync(EVAL_DIR, {recursive:true})
 
-    ARTIFACTS = path.join(DATA_DIR, runCfg.artifacts)
+    ARTIFACTS = runCfg.artifacts
     ABL_JSONL = path.join(EVAL_DIR, "#{stepCfg.ablations or 'ablations'}.jsonl")
     ABL_YAML  = path.join(EVAL_DIR, "#{stepCfg.ablations or 'ablations'}.yaml")
 
@@ -51,9 +51,7 @@ textwrap = require 'textwrap'
     preview = (txt, width=120) -> textwrap.shorten(txt.replace(/\n/g, ' ⏎ '), width, {placeholder:'…'})
 
     loadRuns = ->
-      unless fs.existsSync(ARTIFACTS)
-        throw new Error "Missing artifacts.json (run register step first)."
-      reg = readJSON(ARTIFACTS)
+      reg = M.theLowdown ARTIFACTS
       runs = reg.runs or []
       if ONLY_MODEL_ID.length > 0
         runs = runs.filter((r)-> r.model_id is ONLY_MODEL_ID)

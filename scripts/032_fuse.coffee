@@ -37,7 +37,7 @@ shutil  = require 'fs-extra'
 
     DATA_DIR  = path.resolve(runCfg.data_dir)
     OUT_DIR   = path.resolve(runCfg.output_dir)
-    ARTIFACTS = path.join(DATA_DIR, runCfg.artifacts)
+    ARTIFACTS = runCfg.artifacts
     LOG_DIR   = path.join(DATA_DIR, 'logs')
     fs.mkdirSync(LOG_DIR, {recursive:true})
     LOG_PATH  = path.join(LOG_DIR, "#{stepName}.log")
@@ -94,10 +94,8 @@ shutil  = require 'fs-extra'
       catch e
         return e.status or 1
 
-    unless fs.existsSync(ARTIFACTS)
-      throw new Error "Missing artifacts.json (run register first)."
 
-    registry = JSON.parse(fs.readFileSync(ARTIFACTS, 'utf8'))
+    registry = M.theLowdown ARTIFACTS
     runs = registry.runs or []
     throw new Error "No runs found in artifacts.json." unless runs.length
 
