@@ -54,30 +54,77 @@ class Memo
     @saveThis key, undefined
 
   waitFor: (keys, andDo) ->
-    deps = (@theLowdown(k).notifier for k in keys)
-    Promise.all(deps).then andDo
+    unsatisfied = []
+    for key in keys
+      entry = @theLowdown(key)
+      if entry?.value is true
+        continue
+      unsatisfied.push entry.notifier
+
+    if unsatisfied.length is 0
+      # all already satisfied → run immediately
+      try
+        andDo()
+      catch e
+        console.error "waitFor immediate run failed:", e.message
+      return
+
+    # otherwise wait for remaining
+    Promise.all(unsatisfied).then ->
+      try
+        andDo()
+      catch e
+        console.error "waitFor deferred run failed:", e.message
 
   # --- Reactive file persistence ----------------------------------
   enableFilePersistence: (baseDir = path.join(process.cwd(), 'run')) ->
+    writeCSV = (p, rows) ->
+      fs.mkdirSync(path.dirname(p), {recursive:true})
+    
+      # 1️⃣ if it's a string, write as-is
+      if typeof rows is 'string'
+        fs.writeFileSync(p, rows, 'utf8')
+        return
+
+      # 2️⃣ if not an array, reject
+      unless Array.isArray(rows)
+        throw new Error "CSV writer expected array or string, got #{typeof rows}"
+
+      # 3️⃣ normal array-of-objects mode
+      return unless rows.length and typeof rows[0] is 'object'
+      keys = Object.keys(rows[0])
+      buf = [keys.join(',')]
+      for r in rows
+        vals = (String(r[k] ? '').replace(/,/g, ';') for k in keys)
+        buf.push vals.join(',')
+      fs.writeFileSync(p, buf.join('\n') + '\n', 'utf8')
+
+    # Specialized JSONL writer
+    # --- JSONL writer (faithful to legacy hf_fetch behaviour) ---
+    @regexListeners.push
+      regex: /\.jsonl$/i
+      callback: (key, value) ->
+        return unless value
+        dest = path.join(baseDir, key)
+        try
+          fs.mkdirSync path.dirname(dest), {recursive:true}
+          fs.writeFileSync dest, ''  # always start clean
+          for t in value
+            the_string = JSON.stringify({text: t}) + "\n"
+            fs.appendFileSync dest, the_string, 'utf8'
+          console.log "💾 Memo→JSONL:", dest, value.length, "lines"
+        catch e
+          console.error "❌ JSONL write failed:", dest, e.message
+
     writeJSON = (p, obj) ->
       fs.mkdirSync(path.dirname(p), {recursive:true})
       fs.writeFileSync(p, JSON.stringify(obj, null, 2), 'utf8')
-    writeCSV = (p, rows) ->
-      return unless rows?.length
-      keys = Object.keys(rows[0])
-      esc = (s) ->
-        s = String(s ? '')
-        if /[",\n]/.test(s) then '"' + s.replace(/"/g,'""') + '"' else s
-      buf = [keys.join(',')]
-      for r in rows
-        buf.push (esc(r[k]) for k in keys).join(',')
-      fs.mkdirSync(path.dirname(p), {recursive:true})
-      fs.writeFileSync(p, buf.join('\n') + '\n', 'utf8')
-
     # Generic path-like keys (slash or extension)
     @regexListeners.push
-      regex: /[\/]|\.([A-Za-z0-9]{1,8})$/
+      # no suffix
+      regex: /^(?=.*\/)(?!.*\.[A-Za-z0-9]{1,8}$).+$/
       callback: (key, value) ->
+        return unless value
         dest = path.join(baseDir, key)
         try
           fs.mkdirSync(path.dirname(dest), {recursive:true})
@@ -91,6 +138,7 @@ class Memo
     @regexListeners.push
       regex: /\.json$/i
       callback: (key, value) ->
+        return unless value
         dest = path.join(baseDir, key)
         try
           writeJSON dest, value
@@ -102,6 +150,7 @@ class Memo
     @regexListeners.push
       regex: /\.csv$/i
       callback: (key, value) ->
+        return unless value
         dest = path.join(baseDir, key)
         try
           writeCSV dest, value
@@ -167,6 +216,13 @@ createExperimentYaml = (basePath, defaultConfig, overridePath) ->
 # -------------------------------------------------------------------
 # Step discovery (flat map)
 # -------------------------------------------------------------------
+###
+discoverSteps(spec, recipe)
+---------------------------------------
+Return only steps explicitly declared in the recipe.
+Any top-level entries with `run:` that are *not* in the recipe
+are ignored, even if valid in the config.
+###
 discoverSteps = (spec) ->
   steps = {}
   for own key, val of spec
@@ -179,14 +235,14 @@ discoverSteps = (spec) ->
           deps = val.depends_on.slice()
         else if typeof val.depends_on is 'string'
           deps = [val.depends_on]
-      if deps.length is 1 and String(deps[0]).toLowerCase() is 'never'
-        console.log "⏭️  skipping step #{key} (depends_on: never)"
-        continue
-      def = {}
-      for own k2, v2 of val
-        def[k2] = v2
-      def.depends_on = deps
-      steps[key] = def
+        if deps.length is 1 and String(deps[0]).toLowerCase() is 'never'
+          console.log "⏭️  skipping step #{key} (depends_on: never)"
+          continue
+        def = {}
+        for own k2, v2 of val
+          def[k2] = v2
+        def.depends_on = deps unless deps.length == 0
+        steps[key] = def
   if Object.keys(steps).length is 0
     throw new Error "No steps discovered in experiment.yaml"
   steps
@@ -315,7 +371,7 @@ runStep = (stepName, def, expPath, M) ->
       unless step?.action?
         return reject new Error "Missing @step.action in #{stepName}"
 
-      Promise.resolve(step.action(M))
+      Promise.resolve(step.action(M,stepName))
         .then ->
           M.saveThis "done:#{stepName}", true
           resolve true
@@ -371,6 +427,7 @@ main = ->
 
   expPath = createExperimentYaml(baseRecipe, defaultConfig, overridePath)
   spec    = loadYamlSafe(expPath)
+  recipe  = loadYamlSafe baseRecipe
 
   M = new Memo()
   M.enableFilePersistence path.join(process.cwd())
@@ -394,6 +451,9 @@ main = ->
       fire = ->
         runStep(name, def, expPath, M)
           .catch (err) -> console.error "! Step #{name} error:", err.message
+          .then ->
+             console.log "JAH fini",name
+             M.saveThis "done:#{name}", true
       if deps.length is 0
         console.log "▶️ starting root step #{name}"
         fire()

@@ -28,17 +28,12 @@ shlex   = require 'shell-quote'
     throw new Error "Missing global 'run' section in experiment.yaml" unless runCfg?
 
     # --- Required keys ---
-    for k in ['data_dir','experiments_csv']
-      throw new Error "Missing required run.#{k}" unless k of runCfg
-
-    requiredStep = ['dry_run','only_model_id','only_row','steps_per_report','steps_per_eval','val_batches']
+    requiredStep = ['experiments_csv','dry_run','only_model_id','only_row','steps_per_report','steps_per_eval','val_batches']
     for k in requiredStep
       throw new Error "Missing required param '#{k}' in step '#{stepName}'" unless k of stepCfg
 
-    OUT_DIR = path.resolve(runCfg.data_dir)
-    EXPERIMENTS_CSV = path.join(OUT_DIR, runCfg.experiments_csv)
+    EXPERIMENTS_CSV = runCfg.experiments_csv
 
-    fs.mkdirSync(OUT_DIR, {recursive:true})
 
     DRY_RUN          = stepCfg.dry_run
     ONLY_MODEL_ID    = stepCfg.only_model_id
@@ -48,10 +43,13 @@ shlex   = require 'shell-quote'
     VAL_BATCHES      = stepCfg.val_batches
 
     readCSV = (p) ->
+      #console.log "JIM readcsv on",p
       text = fs.readFileSync(p, 'utf8')
+      #console.log "JIM readcsv text",text
       lines = text.split(/\r?\n/).filter (l)-> l.trim().length
       return [] unless lines.length
       headers = lines[0].split(',').map (h)-> h.trim()
+      #console.log "JIM headers csv", headers
       rows = []
       for line in lines.slice(1)
         cols = line.split(',').map (c)-> c.trim()
@@ -81,14 +79,16 @@ shlex   = require 'shell-quote'
       fs.mkdirSync(path.resolve(row.log_dir), {recursive:true})
 
     buildCmd = (row) ->
-      py = shlex.quote(process.env.PYTHON_EXECUTABLE or 'python')
-      model = shlex.quote(row.model_id)
-      data_dir = shlex.quote(row.data_dir)
-      iters = parseInt(row.iters)
-      bs = parseInt(row.batch_size)
-      maxlen = parseInt(row.max_seq_length)
-      lr = parseFloat(row.learning_rate)
-      adapter = shlex.quote(row.adapter_path)
+      py = process.env.PYTHON_EXECUTABLE or 'python'
+      model = row.model_id
+      #console.log "JIM model?",model
+      data_dir = row.data_dir
+      iters = parseInt row.iters
+      console.log "JIM buildCmd iters",iters
+      bs = parseInt row.batch_size
+      maxlen = parseInt row.max_seq_length
+      lr = parseFloat row.learning_rate
+      adapter = row.adapter_path
 
       parts = [
         "#{py} -m mlx_lm lora"
@@ -108,7 +108,7 @@ shlex   = require 'shell-quote'
       if STEPS_PER_REPORT then parts.push "--steps-per-report #{parseInt(STEPS_PER_REPORT)}"
       if STEPS_PER_EVAL then parts.push "--steps-per-eval #{parseInt(STEPS_PER_EVAL)}"
 
-      parts.join(' ')
+      parts.join ' '
 
     runCmd = (cmd, logPath="run/lora_last.log") ->
       console.log "\n[MLX train]", cmd
@@ -117,16 +117,21 @@ shlex   = require 'shell-quote'
         return 0
 
       fs.mkdirSync(path.dirname(logPath), {recursive:true})
+      console.log "JIM lora command",cmd
       proc = child.spawnSync(cmd, {shell:true, encoding:'utf8'})
+      #console.log "JIM spawnsync",proc
       fs.writeFileSync(logPath, proc.stdout or '', 'utf8')
 
       if proc.status isnt 0
+        console.error process.stderr
         console.error "❌ Training failed. See log:", logPath
       else
         console.log "✅ Training completed. Log:", logPath
       proc.status
 
+    #rows = M.theLowdown(EXPERIMENTS_CSV).value
     rows = readCSV(EXPERIMENTS_CSV)
+    #console.log "JIM exp.csv", rows
     todo = selectRows(rows, ONLY_MODEL_ID, ONLY_ROW)
 
     console.log "Found #{rows.length} rows; running #{todo.length} row(s). DRY_RUN=#{DRY_RUN}"
@@ -134,6 +139,7 @@ shlex   = require 'shell-quote'
     for i in [0...todo.length]
       row = todo[i]
       console.log "\n=== RUN #{i+1}/#{todo.length} ==="
+      #console.log "JIM", row
       ensureDirs(row)
       rc = runCmd(buildCmd(row), path.join(row.log_dir or 'logs', 'lora_last.log'))
       if rc isnt 0

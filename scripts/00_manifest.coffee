@@ -39,21 +39,22 @@ os      = require 'os'
     # --- Utility helpers ---
     safeRun = (cmd) ->
       try
-        res = child.spawnSync(cmd, {shell:true, encoding:'utf8'})
+        res = await child.spawnSync(cmd, {shell:true, encoding:'utf8'})
         [res.status or 1, res.stdout.trim(), res.stderr.trim()]
       catch e
         [1, '', String(e)]
 
     which = (cmd) ->
       try
-        res = child.spawnSync("which #{cmd}", {shell:true, encoding:'utf8'})
+        res = await child.spawnSync("which #{cmd}", {shell:true, encoding:'utf8'})
         res.stdout.trim() or null
       catch e
         null
 
     safeImportVersion = (pkg) ->
       try
-        out = child.spawnSync("#{process.execPath} -m pip show #{pkg}", {shell:true, encoding:'utf8'})
+        PYTHON = path.join(process.env.EXEC, '.venv/bin', 'python3')  # prefer venv/bin/python3
+        out = await child.spawnSync("#{PYTHON} -m pip show #{pkg}", {shell:true, encoding:'utf8'})
         for line in out.stdout.split(/\r?\n/)
           if line.startsWith('Version:')
             return line.split(':')[1].trim()
@@ -77,30 +78,46 @@ os      = require 'os'
       chip_brand: null
 
     if platform_info.system.toLowerCase().includes('darwin')
-      [code, out, err] = safeRun('sysctl -n machdep.cpu.brand_string')
+      try
+        [code, out, err] = await safeRun('sysctl -n machdep.cpu.brand_string')
+      catch e
+        console.log "Sysctl fail on cpu.brand",e
       if code is 0 then platform_info.chip_brand = out
       platform_info.mac_ver = os.release()
 
     # --- Step 3: Package versions ---
     pkgs =
-      'mlx-lm': safeImportVersion('mlx-lm')
-      'datasets': safeImportVersion('datasets')
-      'pandas': safeImportVersion('pandas')
-      'tqdm': safeImportVersion('tqdm')
-      'numpy': safeImportVersion('numpy')
+      'mlx-lm': await safeImportVersion('mlx-lm')
+      'datasets': await safeImportVersion('datasets')
+      'pandas': await safeImportVersion('pandas')
+      'tqdm': await safeImportVersion('tqdm')
+      'numpy': await safeImportVersion('numpy')
 
     # --- Step 4: pip freeze lock ---
     fs.mkdirSync path.dirname(LOCKFILE), {recursive:true}
-    [code, out, err] = safeRun("#{process.execPath} -m pip freeze")
-    if code is 0
-      fs.writeFileSync LOCKFILE, out + "\n", 'utf8'
-    else
-      console.warn "[warn] pip freeze failed:", err
+
+    PYTHON = path.join(process.env.EXEC, '.venv/bin', 'python3')  # prefer venv/bin/python3
+    if not fs.existsSync(PYTHON)
+      PYTHON = 'python3'  # fallback to system Python
+
+    cmd = "#{PYTHON} -m pip freeze"
+    {status, stdout, stderr}  = await child.spawnSync(cmd,
+      shell: true
+      cwd: process.cwd()
+      env: Object.assign({}, process.env, { PYTHONPATH: process.env.EXEC })
+      encoding: 'utf8'
+    )
+    #[code, out, err] = await child.spawnSync(cmd,
+    out = stdout
+    code= status
+    err = stderr
 
     lock_hash = null
-    if fs.existsSync(LOCKFILE)
-      buf = fs.readFileSync(LOCKFILE)
-      lock_hash = crypto.createHash('sha256').update(buf).digest('hex')
+    if code is 0
+      fs.writeFileSync LOCKFILE, out + "\n", 'utf8'
+      lock_hash = crypto.createHash('sha256').update(out+"\n").digest('hex')
+    else
+      console.warn "[warn] pip freeze failed (#{code}):", err
 
     # --- Step 5: Manifest object ---
     manifest =
@@ -110,8 +127,8 @@ os      = require 'os'
       packages: pkgs
       executables:
         node: process.execPath
-        python_which: which('python')
-        pip_which: which('pip')
+        python_which: await which('python')
+        pip_which: await which('pip')
       artifacts:
         requirements_lock: fs.existsSync(LOCKFILE) and path.resolve(LOCKFILE) or null
         requirements_lock_sha256: lock_hash
@@ -143,7 +160,7 @@ os      = require 'os'
     console.log "============================\n"
 
     # --- Step 8: Memo update ---
-    M.saveThis 'run_manifest.yaml', manifest
+    M.saveThis 'out/run_manifest.yaml', manifest
     M.saveThis "done:#{stepName}", true
     console.log "💾 Saved run_manifest.yaml to memo"
 

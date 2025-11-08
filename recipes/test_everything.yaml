@@ -1,34 +1,69 @@
-run:
-  output_dir: .
-  data_dir: ./data
+# ============================================================
+# tests/test_pipeline.yaml
+# Memo-centric test recipe for evaluator
+# ============================================================
 
+run:
+  output_dir: out
+  data_dir: data
+  params_dir: params
+
+files:
+  input: data/input.json
+  transformed: data/transformed.json
+  table: data/table.json
+  finalized: data/finalized.json
+  curl_result: data/curl_result.json
+  python_result: data/python_result.json
+
+# ------------------------------------------------------------
+# Step 1 — generate input
+# ------------------------------------------------------------
 step1_setup:
   run: tests/step1_setup.coffee
   depends_on: []
-  greeting: "Hello from tests runner"
+  params_file: params/step1_setup.json
 
+# ------------------------------------------------------------
+# Step 2 — transform input
+# ------------------------------------------------------------
 step2_transform:
   run: tests/step2_transform.coffee
   depends_on: [step1_setup]
 
+# ------------------------------------------------------------
+# Step 3 — derive tabular summary
+# ------------------------------------------------------------
 step3_table:
   run: tests/step3_table.coffee
   depends_on: [step2_transform]
 
+# ------------------------------------------------------------
+# Step 4 — wait / synchronization test
+# ------------------------------------------------------------
 step4_wait:
   run: tests/step4_wait.coffee
   depends_on: [step3_table]
 
+# ------------------------------------------------------------
+# Step 5 — finalize outputs
+# ------------------------------------------------------------
 step5_finalize:
   run: tests/step5_finalize.coffee
   depends_on: [step4_wait]
 
+# ------------------------------------------------------------
+# Step 6 — external curl test
+# ------------------------------------------------------------
 test6_curl:
   run: tests/step6_curl.coffee
-  depends_on: step5_finalize
-  desc: "Spawn a bash curl command"
+  depends_on: [step5_finalize]
+  desc: "Spawn a bash curl command to verify external process integration"
 
+# ------------------------------------------------------------
+# Step 7 — python process test
+# ------------------------------------------------------------
 test7_python:
   run: tests/step7_python.coffee
-  depends_on: test6_curl
-  desc: "Spawn a Python process"
+  depends_on: [test6_curl]
+  desc: "Spawn a Python subprocess and capture output"

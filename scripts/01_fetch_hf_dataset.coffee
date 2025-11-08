@@ -18,7 +18,6 @@ rand   = require 'seedrandom'
   desc: "Fetch and preprocess a HuggingFace dataset into train/valid splits (strict, no defaults)"
 
   action: (M, stepName) ->
-
     throw new Error "Missing stepName argument" unless stepName?
     cfg = M?.theLowdown?('experiment.yaml')?.value
     throw new Error "Missing experiment.yaml in memo" unless cfg?
@@ -28,21 +27,19 @@ rand   = require 'seedrandom'
     runCfg = cfg['run']
     throw new Error "Missing global 'run' section in experiment.yaml" unless runCfg?
 
+
     # --- Required keys (no defaults allowed) ---
     requiredStepKeys = [
       'hf_dataset','subset','mode','valid_fract',
-      'min_words','max_words','seed'
+      'min_words','max_words','seed','train','valid',
+      'contract','catalog'
     ]
     for k in requiredStepKeys
       throw new Error "Missing required param '#{k}' in step '#{stepName}'" unless k of stepCfg
 
-    requiredRunKeys = ['data_dir','contract','catalog']
-    for k in requiredRunKeys
-      throw new Error "Missing required run.#{k}" unless k of runCfg
-
-    DATA_DIR  = path.resolve(runCfg.data_dir)
-    CONTRACT  = path.join(DATA_DIR, runCfg.contract)
-    CATALOG   = path.join(DATA_DIR, runCfg.catalog)
+    DATA_DIR  = runCfg.data_dir
+    CONTRACT  = stepCfg.contract
+    CATALOG   = stepCfg.catalog
 
     HF_DATASET  = stepCfg.hf_dataset
     SUBSET      = stepCfg.subset
@@ -51,6 +48,8 @@ rand   = require 'seedrandom'
     MIN_WORDS   = stepCfg.min_words
     MAX_WORDS   = stepCfg.max_words
     SEED        = stepCfg.seed
+    TRAIN       = stepCfg.train
+    VALID       = stepCfg.valid
 
     fs.mkdirSync(DATA_DIR, {recursive:true})
     console.log "📦 Fetching:", HF_DATASET, "subset:", SUBSET
@@ -62,11 +61,21 @@ rand   = require 'seedrandom'
     sha = (s) -> crypto.createHash('sha256').update(String(s)).digest('hex')
     timestampUTC = -> new Date().toISOString().replace(/\.\d+Z$/, 'Z')
 
+    sanitize = (text) ->
+      return '' unless text?
+      s = String(text)
+      s = s.replace(/\\n/g, '\n')       # unescape literal \n
+      s = s.replace(/[“”]/g, '"')       # unify curly quotes
+      s = s.replace(/[‘’]/g, "'")       # unify apostrophes
+      s = s.replace(/"\s*"/g, '" "')    # collapse adjacent quotes
+      s = s.replace(/\r/g, '')          # remove stray CR
+      s
+
     writeJSONL = (file, arr) ->
-      fout = fs.createWriteStream(file, {flags:'w', encoding:'utf8'})
       for t in arr
-        fout.write JSON.stringify({text:t}) + "\n"
-      fout.close()
+        the_string = JSON.stringify({text:t}) + "\n"
+        fs.appendFileSync(file , the_string);
+      #console.log "JIM we wrote", file, arr.length,the_string
 
     countLinesBytes = (p) ->
       data = fs.readFileSync(p)
@@ -84,17 +93,29 @@ ds = load_dataset(#{JSON.stringify(HF_DATASET)}, name=#{JSON.stringify(SUBSET)},
 for r in ds:
   print(json.dumps(r))
 """
-    res = child.spawnSync('python', ['-u', '-c', script], {encoding:'utf8'})
+    res = await child.spawnSync('python', ['-u', '-c', script], {encoding:'utf8'})
     if res.error? or res.status isnt 0
       console.error "❌ datasets.load_dataset failed"
       console.error res.stderr
       throw new Error "HF dataset load failed"
 
-    lines = res.stdout.trim().split(/\\r?\\n/)
+    lines = res.stdout.trim().split(/\r?\n/)
     rawRows = []
     for l in lines when l.trim().length
-      try rawRows.push JSON.parse(l)
-      catch e then console.warn "⚠️ bad JSON row", e.message
+      sane = sanitize l
+      try
+        obj =  JSON.parse(sane)
+        # --- post-parse unescape ---
+        if typeof obj.text is 'string'
+          obj.text = obj.text
+            .replace(/\\\\n/g, '\n')    # double-escaped → newline
+            .replace(/\\n/g, '\n')      # single-escaped → newline
+            .replace(/[“”]/g, '"')
+            .replace(/[‘’]/g, "'")
+            .trim()
+        rawRows.push obj
+      catch e
+        console.warn "⚠️ bad JSON row", l, e.message
 
     console.log "Fetched #{rawRows.length} records"
 
@@ -124,12 +145,12 @@ for r in ds:
     valid = uniq.slice(0, valid_n)
     train = uniq.slice(valid_n)
 
-    trainPath = path.join(DATA_DIR, 'train.jsonl')
-    validPath = path.join(DATA_DIR, 'valid.jsonl')
+    trainPath = TRAIN
+    validPath = VALID
 
-    writeJSONL(trainPath, train)
-    writeJSONL(validPath, valid)
-    console.log "✅ Wrote #{train.length} train, #{valid.length} valid"
+    M.saveThis(TRAIN, train)
+    M.saveThis(VALID, valid)
+    console.log "✅ Saved (and wrote) #{train.length} train, #{valid.length} valid"
 
     created = timestampUTC()
 
@@ -167,8 +188,8 @@ for r in ds:
             num_bytes: v_bytes
             sha256: v_sha
 
-    M.saveThis 'data_contract.json', data_contract
-    M.saveThis 'data_catalog.json', data_catalog
+    M.saveThis CONTRACT, data_contract
+    M.saveThis CATALOG, data_catalog
     M.saveThis "done:#{stepName}", true
     console.log "📗 Recorded data_contract.json and data_catalog.json"
 

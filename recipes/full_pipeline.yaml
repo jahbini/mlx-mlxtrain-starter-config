@@ -1,22 +1,21 @@
 # recipes/full_pipeline.yaml
-# Pure DAG definition for the flat pipeline
-
-manifest: {}
+manifest:
+  depends_on: []
 
 fetch_hf_dataset:
-  depends_on: []
+  depends_on: [manifest]
+
+prepare_data:
+  depends_on: [fetch_hf_dataset]
 
 prepare_prompts:
   depends_on: [fetch_hf_dataset]
 
 prepare_experiments:
-  depends_on: [prepare_prompts]
-
-prepare_data:
-  depends_on: [prepare_experiments]
+  depends_on: [prepare_data, prepare_prompts]
 
 register:
-  depends_on: [prepare_data]
+  depends_on: [prepare_experiments]
 
 train:
   depends_on: [register]
@@ -30,15 +29,6 @@ snapshot:
 examination:
   depends_on: [snapshot]
 
-# --- Optional or disabled entry points ---
+# --- Optional or disabled ---
 extract_md_for_voice:
-  depends_on: [never]
-
-crawl_for_voice:
-  depends_on: [never]
-
-crawl_for_voice_continuation:
-  depends_on: [never]
-
-extract_keywords_kag:
-  depends_on: [never]
+  depends_on: [never]# Pure DAG definition for the flat pipeline

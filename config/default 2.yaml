@@ -1,0 +1,149 @@
+# ============================================================
+# Celarien / SpaceStruts Unified Pipeline (Flat Schema)
+# ============================================================
+
+# 1️⃣ Environment — always required
+env:
+  root_dir: .
+  output_dir: out
+  data_dir: data
+  eval_dir: eval_out
+  snapshots: snapshots
+  fused_dir: fused_model
+  model: microsoft/Phi-3-mini-4k-instruct
+  python_exec: /usr/bin/python3
+  node_exec: /opt/homebrew/bin/node
+
+# 2️⃣ Shared datasets and artifacts
+files:
+  contract: data/data_contract.json
+  catalog: data/data_catalog.json
+  report: data/data_report.json
+  artifacts: out/artifacts.json
+  format_policy: data/format_policy.json
+  prompt_policy: data/prompt_policy.json
+  generations: eval_out/generations.jsonl
+  ablations: eval_out/ablations.jsonl
+  summary: eval_out/summary.csv
+
+# 3️⃣ Model and evaluation policies
+policies:
+  eval:
+    policy: generation_policy.json
+    report: eval_out/report.md
+  entropy:
+    stop_strings: ["\n\n", "==="]
+    max_new_tokens: 128
+
+# 4️⃣ Pipeline steps (flat, visible, explicit)
+fetch_hf_dataset:
+  desc: Download and preprocess a HuggingFace dataset for fine-tuning
+  run: scripts/01_fetch_hf_dataset.coffee
+  hf_dataset: asuender/motivational-quotes
+  subset: quotes
+  mode: plain
+  valid_fract: 0.10
+  min_words: 5
+  max_words: 60
+  seed: 42
+
+fuse:
+  run: scripts/032_fuse.coffee
+  do_fuse: true
+  q_bits: 4
+  q_group: 32
+  dtype: float16
+  dry_run: false
+
+prepare_prompts:
+  run: scripts/022_prepare_prompts.coffee
+  template_name: icl_minimal
+  stop_strings: ["<|endoftext|>", "\n\n"]
+  use_eos_token: false
+
+prepare_outmd_kag:
+  run: scripts/021_prepare_outmd_kag.coffee
+  input_md: your/your.md
+  output_jsonl: out/out_kag.jsonl
+
+oracle_chat:
+  run: scripts/095_oracle_chat.coffee
+
+entropy:
+  run: scripts/115_entropy.coffee
+  params_ref: policies.entropy
+
+crawl_for_voice:
+  run: scripts/081_crawl_for_voice.coffee
+  base: celarien.com
+  valid_fraction: 0.1
+  min_story_words: 50
+  max_pages: 1000
+  pause_sec: 0.5
+  user_agent: Mozilla/5.0
+  request_timeout: 15000
+
+sanity:
+  run: scripts/042_sanity.coffee
+  ablations_ref: files.ablations
+
+examination:
+  run: scripts/042_examination.coffee
+  prompts:
+    - "Share an important thought."
+    - "What truth do we often overlook?"
+  max_new_short: 64
+  max_new_long: 128
+  only_model_id: ""
+  ablations_ref: files.ablations
+
+snapshot:
+  run: scripts/04_snapshot.coffee
+  prompts:
+    - "Finish this proverb: 'A stitch in time...'"
+    - "What lesson would a wise elder share about patience?"
+  max_new: 64
+  alt_seed: 123
+  n_shots: 3
+  min_words: 4
+  retries: 3
+
+train:
+  run: scripts/03_train.coffee
+  dry_run: false
+  only_model_id: ""
+  only_row: "None"
+  steps_per_report: 0
+  steps_per_eval: 0
+  val_batches: 0
+
+step1_setup:
+  run: tests/step1_setup.coffee
+  depends_on: []
+  greeting: "Hello from tests runner"
+
+step2_transform:
+  run: tests/step2_transform.coffee
+  depends_on: [step1_setup]
+
+step3_table:
+  run: tests/step3_table.coffee
+  depends_on: [step2_transform]
+
+step4_wait:
+  run: tests/step4_wait.coffee
+  depends_on: [step3_table]
+
+step5_finalize:
+  run: tests/step5_finalize.coffee
+  depends_on: [step4_wait]
+
+step6_curl:
+  run: tests/step6_curl.coffee
+  depends_on: [step5_finalize]
+  desc: Spawn a bash curl command
+
+step7_python:
+  run: tests/step7_python.coffee
+  depends_on: [step6_curl]
+  desc: Spawn a Python process

@@ -28,15 +28,15 @@ path = require 'path'
     throw new Error "Missing global 'run' section in experiment.yaml" unless runCfg?
 
     # --- Required keys ---
-    for k in ['data_dir','contract','policy']
+    for k in ['data_dir']
       throw new Error "Missing required run.#{k}" unless k of runCfg
 
-    for k in ['template_name','stop_strings','use_eos_token']
+    for k in ['contract','prompt_policy','template_name','stop_strings','use_eos_token']
       throw new Error "Missing required param '#{k}' in step '#{stepName}'" unless k of stepCfg
 
-    DATA_DIR  = path.resolve(runCfg.data_dir)
-    CONTRACT  = path.join(DATA_DIR, runCfg.contract)
-    POLICY    = path.join(DATA_DIR, runCfg.prompt_policy)
+    OUT_DIR  = path.resolve(runCfg.data_dir)
+    CONTRACT  = stepCfg.contract
+    POLICY    = stepCfg.prompt_policy
 
     TEMPLATE_NAME = stepCfg.template_name
     STOP_STRINGS  = stepCfg.stop_strings
@@ -123,3 +123,4 @@ path = require 'path'
     M.saveThis "prepare_prompts:policy", policy
     M.saveThis "done:#{stepName}", true
     return
+

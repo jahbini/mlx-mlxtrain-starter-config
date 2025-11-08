@@ -1,14 +1,19 @@
-#!/usr/bin/env coffee
 ###
 Step 4 — wait: simulate asynchronous work
 ###
 @step =
   name: 'step4_wait'
-  action: (M) ->
-    console.log "🕐 [step4_wait] working..."
+  desc: 'Simulate time-delayed computation before next step.'
+
+  action: (M, stepName) ->
+    console.log "[#{stepName}] simulating work..."
     new Promise (resolve) ->
+      payload = 
+        done: true
+        timestamp: new Date().toISOString()
       setTimeout ->
-        M.saveThis "state/wait.json", { done: true, timestamp: new Date().toISOString() }
-        console.log "⏰ [step4_wait] done"
+        M.saveThis "state/wait.json", payload
+        console.log "[#{stepName}] completed wait phase"
+        M.saveThis "done:#{stepName}", true
         resolve()
       , 1000
