@@ -157,6 +157,112 @@ class Memo
           console.log "💾 Memo→CSV:", dest
         catch e
           console.error "❌ CSV write failed:", dest, e.message
+    ###
+    MLX Agent for Memo
+    ------------------
+    • Runs mlx-lm commands through embedded Python
+    • NEVER skips missing args — ALWAYS passes flags literally
+    • If missing or garbage, Python crashes immediately (correct behavior)
+    • Logs caller + input JSON + stderr
+    • Does NOT write bad results into the memo
+    ###
+
+  runPython = (stepName, key, payload) ->
+    # Payload should be a JSON object
+    v = payload or {}
+
+    # Marshal JSON → Python args (flat list)
+    # **Always** pass the flag, even if undefined/null
+    buildArgs = (cmdType, v) ->
+      args = []
+
+      switch cmdType
+
+        when "lora", "train"
+          args.push "-m", "mlx_lm", "lora"
+          args.push "--model",         String(v.model_id)
+          args.push "--data",          String(v.data)
+          args.push "--batch-size",    String(v.batch_size)
+          args.push "--iters",         String(v.iters)
+          args.push "--learning-rate", String(v.learning_rate)
+          args.push "--max-seq-length",String(v.max_seq_length)
+          args.push "--adapter-path",  String(v.adapter_path)
+          args.push "--train"
+          args.push "--fine-tune-type", "lora"
+
+        when "fuse"
+          args.push "-m", "mlx_lm", "fuse"
+          args.push "--model",        String(v.model_id)
+          args.push "--adapter-path", String(v.adapter_path)
+          args.push "--save-path",    String(v.save_path)
+
+        when "convert"
+          args.push "-m", "mlx_lm", "convert"
+          args.push "--hf-path",     String(v.hf_path)
+          args.push "--mlx-path",    String(v.mlx_path)
+          args.push "--q-bits",      String(v.q_bits)
+          args.push "--q-group-size",String(v.q_group)
+          args.push "--dtype",       String(v.dtype)
+          args.push "-q"
+
+        when "generate"
+          args.push "-m", "mlx_lm.generate"
+          args.push "--model",      String(v.model_path)
+          args.push "--prompt",     String(v.prompt)
+          args.push "--max-tokens", String(v.max_tokens)
+          args.push "--adapter-path", String(v.adapter_path)
+
+        else
+          throw new Error "Unknown MLX command type: #{cmdType}"
+
+      args
+
+    runCmd = (cmdType, v) ->
+      args = buildArgs(cmdType, v)
+
+      cmd = ["python"].concat(args).join(" ")
+
+      logHeader =
+        "=== MLX-LM CALL ERROR ===\n" +
+        "Step:     #{stepName}\n" +
+        "Memo key: #{key}\n" +
+        "Payload:\n#{JSON.stringify(v, null, 2)}\n" +
+        "Command:\n#{cmd}\n"
+
+      try
+        proc = child.spawnSync(cmd, {shell:true, encoding:'utf8'})
+      catch e
+        console.error logHeader + "SpawnSync failed: #{e.message}"
+        throw e
+
+      if proc.status isnt 0
+        console.error logHeader + "Python stderr:\n#{proc.stderr}"
+        throw new Error "MLX-LM command failed for #{key}"
+
+      # Python stdout must be valid JSON (you enforce this)
+      try
+        return JSON.parse(proc.stdout)
+      catch e
+        console.error logHeader +
+          "Bad JSON returned by MLX-LM!\n#{proc.stdout}\nError: #{e.message}"
+        throw e
+
+    ###
+    Register regex Listener
+    Matches: mlx-lm:train, mlx-lm:generate, mlx-lm:fuse, mlx-lm:convert, mlx-lm:lora
+    ###
+    M.regexListeners.push
+      regex: /^mlx-lm:(train|generate|fuse|convert|lora)$/
+      callback: (key, payload) ->
+        stepName = M.currentStep or "UNKNOWN_STEP"
+
+        try
+          result = runCmd key.split(":")[1], payload
+          M.saveThis "#{key}:result", result
+        catch e
+          # DO NOT save the bad output
+          console.error "💥 MLX failure for #{key}: #{e.message}"
+          throw e
 
 # -------------------------------------------------------------------
 # Utilities

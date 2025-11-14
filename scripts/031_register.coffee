@@ -47,20 +47,29 @@ crypto = require 'crypto'
 
     # --- ensure artifacts.json pointer exists ---
     ART_JSON = runCfg.artifacts_json
+    # --- ensure artifacts pointer exists ---
+    ART_PATH = runCfg.artifacts    # from config default: "out/artifacts.json"
+    OUT_ROOT = path.dirname(ART_PATH)
+
     registry =
-      created: Date.now()
+      created_utc: new Date().toISOString()
       runs: [
-        model_id: "init-000"
-        output_root: path.dirname(ART_JSON)
-        adapter_dir: path.join(path.dirname(ART_JSON), 'adapter')
-        fused_dir: path.join(path.dirname(ART_JSON), 'fused', 'model')
+        {
+          model_id: runCfg.model
+          output_root: OUT_ROOT
+          adapter_dir: path.join(OUT_ROOT, 'adapter')
+          fused_dir: path.join(OUT_ROOT, 'fused')
+          quantized_dir: path.join(OUT_ROOT, 'quantized')
+        }
       ]
 
-    M.saveThis ART_JSON, registry          # Memo auto-persists it
-    M.saveThis "register:artifacts_json", ART_JSON
+    M.saveThis ART_PATH, registry           # Memo auto-persists it
+    M.saveThis "register:artifacts", ART_PATH
+    console.log "registered artifacts:", ART_PATH
 
     M.saveThis "done:#{stepName}", true
     console.log "Registered #{EXP_CSV} (#{lines.length - 1} row(s))"
     console.log "lock_hash =", hash
     return
+
 

@@ -42,13 +42,11 @@ _    = require 'lodash'
     unless stepCfg.ablations?
       throw new Error "Missing required key: #{stepName}.ablations in experiment.yaml"
 
-    EVAL_DIR = path.resolve(runCfg.eval_dir)
-    fs.mkdirSync(EVAL_DIR, {recursive:true})
 
-    ABL_NAME  = stepCfg.ablations
-    ABL_JSONL = path.join(EVAL_DIR, "#{ABL_NAME}.jsonl")
-    SUM_JSON  = path.join(EVAL_DIR, "#{ABL_NAME}_summary.json")
-    SUM_CSV   = path.join(EVAL_DIR, "#{ABL_NAME}_summary.csv")
+    ABL_NAME  = runCfg.ablations
+    ABL_JSONL = path.join( "#{ABL_NAME}.jsonl")
+    SUM_JSON  = path.join( "#{ABL_NAME}_summary.json")
+    SUM_CSV   = path.join( "#{ABL_NAME}_summary.csv")
 
     unless fs.existsSync(ABL_JSONL)
       throw new Error "Missing #{ABL_JSONL} — run examination step first."

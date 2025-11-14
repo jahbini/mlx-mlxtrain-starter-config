@@ -25,10 +25,11 @@ run:
 
   # --- Outputs and artifacts ---
   fused_dir: fused_model
+  artifacts: out/artifacts.json
+
   generations: generations
   tokmeta: tokenizer_meta
-  ablations: ablation_generations
-  artifacts: out/artifacts.json
+  ablations: eval_out/ablation_generations
   summary: summary
   analysis: analysis
 
@@ -42,7 +43,6 @@ eval:
   output_dir: eval_out
   policy: generation_policy.json
   generations: generations.jsonl
-  ablations: ablations
   report: report.md
 
 # ============================================================

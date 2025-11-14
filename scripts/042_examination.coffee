@@ -1,164 +1,137 @@
 #!/usr/bin/env coffee
-###
-042_examination.coffee — strict memo-aware version (2025)
----------------------------------------------------------
-STEP — Regeneration Sanity Checks (artifact + prompt ablation)
 
-• Diagnoses empty / degenerate outputs by varying:
-   - Artifact type: quantized, fused, base+adapter
-   - Prompt style: plain, directive, fewshot
-• Outputs:
-   eval_out/ablations.jsonl
-   eval_out/ablations.yaml
-###
-
-fs      = require 'fs'
-path    = require 'path'
-yaml    = require 'js-yaml'
-textwrap = require 'textwrap'
-{ load, generate } = require 'mlx_lm'
+fs   = require 'fs'
+path = require 'path'
+yaml = require 'js-yaml'
 
 @step =
   desc: "Run regeneration ablations (artifact × prompt variants)"
 
   action: (M, stepName) ->
 
-    throw new Error "Missing stepName argument" unless stepName?
-    cfg = M?.theLowdown?('experiment.yaml')?.value
-    throw new Error "Missing experiment.yaml in memo" unless cfg?
+    throw new Error "Missing stepName" unless stepName?
+
+    cfg = M.theLowdown('experiment.yaml')?.value
+    throw new Error "Missing experiment.yaml" unless cfg?
 
     stepCfg = cfg[stepName]
-    throw new Error "Missing step config for '#{stepName}'" unless stepCfg?
-    runCfg  = cfg['run']
-    throw new Error "Missing global 'run' section in experiment.yaml" unless runCfg?
+    runCfg  = cfg.run
 
-    DATA_DIR  = path.resolve(runCfg.data_dir)
-    OUT_DIR   = path.resolve(runCfg.output_dir)
-    EVAL_DIR  = path.resolve(runCfg.eval_dir or path.join(OUT_DIR, 'eval_out'))
-    fs.mkdirSync(EVAL_DIR, {recursive:true})
+    # Intentionally no prechecks. If something is missing, it blows up where used.
 
-    ARTIFACTS = runCfg.artifacts
-    ABL_JSONL = path.join(EVAL_DIR, "#{stepCfg.ablations or 'ablations'}.jsonl")
-    ABL_YAML  = path.join(EVAL_DIR, "#{stepCfg.ablations or 'ablations'}.yaml")
+    ARTIFACTS = path.join runCfg.artifacts
+    runs = (JSON.parse fs.readFileSync(ARTIFACTS, 'utf8')).runs or []
+    console.log "JIM runs",runs
 
-    ONLY_MODEL_ID = stepCfg.only_model_id or ''
-    PROMPTS       = stepCfg.prompts or ['Share an important thought.']
-    MAX_NEW_SHORT = stepCfg.max_new_short or 64
-    MAX_NEW_LONG  = stepCfg.max_new_long or 128
+    PROMPTS      = stepCfg.prompts
+    MAX_NEW_SHORT = stepCfg.max_new_short
+    MAX_NEW_LONG  = stepCfg.max_new_long
+    ONLY_MODEL_ID = stepCfg.only_model_id
 
-    # --- Helpers ---------------------------------------------------
-    readJSON = (p) -> JSON.parse(fs.readFileSync(p, 'utf8'))
-    preview = (txt, width=120) -> textwrap.shorten(txt.replace(/\n/g, ' ⏎ '), width, {placeholder:'…'})
+    if ONLY_MODEL_ID
+      runs = runs.filter (r)-> r.model_id is ONLY_MODEL_ID
 
-    loadRuns = ->
-      reg = M.theLowdown ARTIFACTS
-      runs = reg.runs or []
-      if ONLY_MODEL_ID.length > 0
-        runs = runs.filter((r)-> r.model_id is ONLY_MODEL_ID)
-      throw new Error "No runs found in artifacts.json." unless runs.length
-      runs
+    # Where output should go. If missing → fail here (first use).
+    ABL_BASENAME = runCfg.ablations
 
-    pickArtifacts = (runEntry) ->
-      out = []
-      if runEntry.quantized_dir? then out.push [runEntry.quantized_dir, null, 'quantized']
-      if runEntry.fused_dir?     then out.push [runEntry.fused_dir, null, 'fused']
-      out.push [runEntry.model_id, runEntry.adapter_dir, 'base+adapter']
-      seen = new Set()
-      uniq = []
-      for [m,a,label] in out
-        key = "#{m}|#{a or ''}"
-        continue if seen.has(key)
-        seen.add(key)
-        uniq.push [m,a,label]
-      uniq
+    jsonlPath = path.join( "#{ABL_BASENAME}.jsonl")
+    yamlPath  = path.join("#{ABL_BASENAME}.yaml")
 
-    # Prompt variants
-    pvPlain = (p) -> p
-    pvDirective = (p) -> "#{p}\n\nAnswer with a single important thought:"
-    pvFewshot = (p) ->
-      shots = [
-        "The moon does not race the tide."
-        "A river carves stone by lingering."
-      ]
-      "Proverbs:\n- #{shots.join('\n- ')}\n\n#{p}\n- "
-
-    PROMPT_VARIANTS = [
-      ['plain', pvPlain]
-      ['directive', pvDirective]
-      ['fewshot', pvFewshot]
-    ]
-
-    # --- MLX wrapper -----------------------------------------------
-    runGeneration = (modelPath, adapterPath, prompts, maxNew) ->
-      { model, tokenizer } = load(modelPath, adapter_path: adapterPath or null)
-      outs = []
-      for p in prompts
-        txt = generate(model: model, tokenizer: tokenizer, prompt: p, max_tokens: maxNew)
-        cont = if txt.startsWith(p) then txt.slice(p.length) else txt
-        outs.push(cont.trim())
-      meta =
-        eos_token: tokenizer.eos_token or null
-        eos_token_id: tokenizer.eos_token_id or null
-        pad_token: tokenizer.pad_token or null
-        pad_token_id: tokenizer.pad_token_id or null
-      [outs, meta]
-
-    # --- Main -------------------------------------------------------
-    runs = loadRuns()
-    stamp = new Date().toISOString().replace(/\.\d+Z$/, 'Z')
     rows = []
 
+    # Prompt variants
+    pv =
+      plain:      (p)-> p
+      directive:  (p)-> "#{p}\n\nAnswer with a single important thought:"
+      fewshot:    (p)->
+        "Proverbs:\n- The moon does not race the tide.\n- A river carves stone by lingering.\n\n#{p}\n- "
+
+    promptVariants = Object.entries(pv)  # [['plain',fn], ['directive',fn], ...]
+
+    # Artifact selector: remove duplicates
+    pickArtifacts = (run) ->
+      out = []
+      if run.quantized_dir? then out.push {label:'quantized', model:run.quantized_dir, adapter:null}
+      if run.fused_dir?     then out.push {label:'fused',     model:run.fused_dir,    adapter:null}
+      out.push {label:'base+adapter', model:run.model_id, adapter:run.adapter_dir}
+      uniq = {}
+      final = []
+      for a in out
+        k = "#{a.model}|#{a.adapter or ''}"
+        continue if uniq[k]
+        uniq[k] = true
+        final.push a
+      final
+
+    # Submit MLX request → await notifier → get result
+    runOne = (modelPath, adapterPath, prompts, maxTokens) ->
+      M.saveThis "mlx-lm:generate",
+        op: "generate"
+        model: modelPath
+        adapter: adapterPath
+        prompts: prompts
+        max_tokens: maxTokens
+      mo = M.theLowdown "mlx-lm:generate"
+      res = await mo.notifier
+      if res?.error?
+        throw new Error "mlx-lm.generate error: #{res.error}"
+      return res.outputs or []
+
+    stamp = new Date().toISOString().replace(/\.\d+Z$/, 'Z')
+
     for run in runs
-      artList = pickArtifacts(run)
-      for [modelPath, adapterPath, artLabel] in artList
-        for [pvLabel, pvFn] in PROMPT_VARIANTS
-          promptsV = PROMPTS.map(pvFn)
-          [outsShort, meta] = runGeneration(modelPath, adapterPath, promptsV, MAX_NEW_SHORT)
-          [outsLong, _]     = runGeneration(modelPath, adapterPath, promptsV, MAX_NEW_LONG)
+      arts = pickArtifacts(run)
 
-          console.log "\n=== #{run.model_id} | #{artLabel} | #{pvLabel} | short ==="
-          for i in [0...promptsV.length]
-            console.log "- #{promptsV[i]}\n→ #{preview(outsShort[i] or '')}"
+      for art in arts
+        for [pvLabel, pvFn] in promptVariants
 
-          console.log "\n=== #{run.model_id} | #{artLabel} | #{pvLabel} | long ==="
-          for i in [0...promptsV.length]
-            console.log "- #{promptsV[i]}\n→ #{preview(outsLong[i] or '')}"
+          promptsV = PROMPTS.map pvFn
 
-          for [budget, outs] in [['short', outsShort], ['long', outsLong]]
-            for i in [0...PROMPTS.length]
-              p = PROMPTS[i]
-              o = outs[i] or ''
-              rows.push
-                timestamp_utc: stamp
-                model_id: run.model_id
-                artifact: artLabel
-                prompt_variant: pvLabel
-                budget: budget
-                model_path: modelPath
-                adapter_path: adapterPath or ''
-                eos_token: meta.eos_token
-                eos_token_id: meta.eos_token_id
-                prompt: p
-                generation: o
-                len_chars: o.length
-                len_words: o.split(/\s+/).filter((x)->x.length).length
-                is_empty: if o.trim().length is 0 then 1 else 0
+          # --- SHORT ---
+          outsShort = await runOne(art.model, art.adapter, promptsV, MAX_NEW_SHORT)
+          for i in [0...PROMPTS.length]
+            o = outsShort[i] or ''
+            rows.push
+              timestamp_utc: stamp
+              model_id: run.model_id
+              artifact: art.label
+              prompt_variant: pvLabel
+              budget: 'short'
+              prompt: PROMPTS[i]
+              generation: o
+              len_chars: o.length
+              len_words: o.split(/\s+/).filter((x)->x).length
+              is_empty: if o.trim().length is 0 then 1 else 0
 
-    # --- Write outputs ---------------------------------------------
-    fs.writeFileSync(ABL_JSONL, rows.map((r)-> JSON.stringify(r)).join('\n') + '\n', 'utf8')
+          # --- LONG ---
+          outsLong = await runOne(art.model, art.adapter, promptsV, MAX_NEW_LONG)
+          for i in [0...PROMPTS.length]
+            o = outsLong[i] or ''
+            rows.push
+              timestamp_utc: stamp
+              model_id: run.model_id
+              artifact: art.label
+              prompt_variant: pvLabel
+              budget: 'long'
+              prompt: PROMPTS[i]
+              generation: o
+              len_chars: o.length
+              len_words: o.split(/\s+/).filter((x)->x).length
+              is_empty: if o.trim().length is 0 then 1 else 0
+
+    # --- Outputs -----------------------------------------------------
+
+    jsonlOut = rows.map((r)-> JSON.stringify(r)).join('\n') + '\n'
+    M.saveThis jsonlPath, jsonlOut
 
     grouped = {}
     for r in rows
-      pr = (r.prompt or '').trim()
+      pr = r.prompt.trim()
       grouped[pr] ?= []
-      grouped[pr].push(r)
-    fs.writeFileSync(ABL_YAML, yaml.safeDump(grouped, {sortKeys:false, lineWidth:140}), 'utf8')
+      grouped[pr].push r
 
-    console.log "\n📘 Ablation results written:"
-    console.log "- JSONL: #{ABL_JSONL}"
-    console.log "- YAML:  #{ABL_YAML}"
-    console.log "Tip: Compare 'fused+fewshot' vs 'quantized+plain' to spot degeneracy."
+    M.saveThis yamlPath, yaml.safeDump(grouped, {sortKeys:false, lineWidth:140})
 
-    M.saveThis "examination:ablations", rows
     M.saveThis "done:#{stepName}", true
+    console.log "📘 Examination complete: #{jsonlPath}"
     return

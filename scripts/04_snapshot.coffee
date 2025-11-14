@@ -35,9 +35,9 @@ child   = require 'child_process'
       throw new Error "Missing required param '#{k}' in step '#{stepName}'" unless k of stepCfg
 
     DATA_DIR  = path.resolve(runCfg.data_dir)
-    EXPERIMENTS_CSV = path.join(DATA_DIR, runCfg.experiments_csv)
+    EXPERIMENTS_CSV = path.join(runCfg.experiments_csv)
     SNAPSHOT_DIR    = path.join(runCfg.snapshot_dir)
-    CONTRACT_PATH   = path.join(DATA_DIR, runCfg.contract)
+    CONTRACT_PATH   = path.join(runCfg.contract)
     OUT_DIR    = path.resolve(runCfg.output_dir)
     EVAL_DIR   = path.resolve(runCfg.eval_dir)
     JSONL_PATH = path.join(EVAL_DIR, "#{runCfg.generations}.jsonl")

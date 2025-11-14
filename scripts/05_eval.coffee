@@ -38,7 +38,7 @@ pd   = require 'danfojs-node'  # lightweight DataFrame lib
     fs.mkdirSync(EVAL_DIR, {recursive:true})
     fs.mkdirSync(OUT_DIR, {recursive:true})
 
-    ABL_JSONL = path.join(EVAL_DIR, "#{stepCfg.ablations}.jsonl")
+    ABL_JSONL = path.join("#{runCfg.ablations}.jsonl")
     REPORT_MD = path.join(EVAL_DIR, stepCfg.report)
     POLICY_JS = path.join(EVAL_DIR, stepCfg.policy)
 
