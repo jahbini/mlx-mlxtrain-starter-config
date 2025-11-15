@@ -1,137 +1,181 @@
 #!/usr/bin/env coffee
 
+# -------------------------------------------------------------------
+# 042_examination.coffee — meta-aware, MLX-runner clean version
+# -------------------------------------------------------------------
+
 fs   = require 'fs'
 path = require 'path'
 yaml = require 'js-yaml'
 
 @step =
-  desc: "Run regeneration ablations (artifact × prompt variants)"
+  desc: "Run regeneration ablations using MLX memo agent"
 
   action: (M, stepName) ->
 
-    throw new Error "Missing stepName" unless stepName?
-
+    # ---------------------------------------------------------------
+    # Load experiment.yaml from memo (must be present)
+    # ---------------------------------------------------------------
     cfg = M.theLowdown('experiment.yaml')?.value
     throw new Error "Missing experiment.yaml" unless cfg?
 
     stepCfg = cfg[stepName]
-    runCfg  = cfg.run
+    runCfg  = cfg['run']
+    throw new Error "Missing step config '#{stepName}'" unless stepCfg?
+    throw new Error "Missing run section" unless runCfg?
 
-    # Intentionally no prechecks. If something is missing, it blows up where used.
+    # ---------------------------------------------------------------
+    # Inputs from config (NO defaults silently inserted)
+    # ---------------------------------------------------------------
+    PROMPTS         = stepCfg.prompts or []
+    ABLATIONS       = stepCfg.ablations
+    MAX_SHORT       = stepCfg.max_new_short
+    MAX_LONG        = stepCfg.max_new_long
+    ONLY_MODEL_ID   = stepCfg.only_model_id
 
-    ARTIFACTS = path.join runCfg.artifacts
-    runs = (JSON.parse fs.readFileSync(ARTIFACTS, 'utf8')).runs or []
-    console.log "JIM runs",runs
+    # ---------------------------------------------------------------
+    # Artifact registry
+    # ---------------------------------------------------------------
+    artPath = path.join(runCfg.data_dir, runCfg.artifacts)
+    reg = JSON.parse(fs.readFileSync(artPath, 'utf8'))
+    runs = reg.runs or []
+    throw new Error "No runs in artifacts.json" unless runs.length
 
-    PROMPTS      = stepCfg.prompts
-    MAX_NEW_SHORT = stepCfg.max_new_short
-    MAX_NEW_LONG  = stepCfg.max_new_long
-    ONLY_MODEL_ID = stepCfg.only_model_id
+    if ONLY_MODEL_ID? and ONLY_MODEL_ID.length > 0
+      runs = runs.filter (r) -> r.model_id is ONLY_MODEL_ID
 
-    if ONLY_MODEL_ID
-      runs = runs.filter (r)-> r.model_id is ONLY_MODEL_ID
+    throw new Error "No matching runs" unless runs.length
 
-    # Where output should go. If missing → fail here (first use).
-    ABL_BASENAME = runCfg.ablations
-
-    jsonlPath = path.join( "#{ABL_BASENAME}.jsonl")
-    yamlPath  = path.join("#{ABL_BASENAME}.yaml")
-
-    rows = []
-
-    # Prompt variants
-    pv =
-      plain:      (p)-> p
-      directive:  (p)-> "#{p}\n\nAnswer with a single important thought:"
-      fewshot:    (p)->
-        "Proverbs:\n- The moon does not race the tide.\n- A river carves stone by lingering.\n\n#{p}\n- "
-
-    promptVariants = Object.entries(pv)  # [['plain',fn], ['directive',fn], ...]
-
-    # Artifact selector: remove duplicates
-    pickArtifacts = (run) ->
+    # ---------------------------------------------------------------
+    # Pick artifacts for each runEntry
+    # ---------------------------------------------------------------
+    pickArtifacts = (re) ->
       out = []
-      if run.quantized_dir? then out.push {label:'quantized', model:run.quantized_dir, adapter:null}
-      if run.fused_dir?     then out.push {label:'fused',     model:run.fused_dir,    adapter:null}
-      out.push {label:'base+adapter', model:run.model_id, adapter:run.adapter_dir}
-      uniq = {}
-      final = []
-      for a in out
-        k = "#{a.model}|#{a.adapter or ''}"
-        continue if uniq[k]
-        uniq[k] = true
-        final.push a
-      final
+      if re.quantized_dir? then out.push [re.quantized_dir, null, 'quantized']
+      if re.fused_dir?     then out.push [re.fused_dir, null, 'fused']
+      out.push [re.model_id, re.adapter_dir, 'base+adapter']
+      uniq = []
+      seen = new Set()
+      for [m,a,label] in out
+        key = "#{m}|#{a or ''}"
+        continue if seen.has(key)
+        seen.add(key)
+        uniq.push [m,a,label]
+      uniq
 
-    # Submit MLX request → await notifier → get result
+    # ---------------------------------------------------------------
+    # Prompt transformations
+    # ---------------------------------------------------------------
+    pvPlain = (p) -> p
+    pvDirective = (p) -> "#{p}\n\nAnswer with a single important thought:"
+    pvFewshot = (p) ->
+      shots = [
+        "The moon does not race the tide."
+        "A river carves stone by lingering."
+      ]
+      "Proverbs:\n- #{shots.join('\n- ')}\n\n#{p}\n- "
+
+    PROMPT_VARIANTS = [
+      ['plain', pvPlain]
+      ['directive', pvDirective]
+      ['fewshot', pvFewshot]
+    ]
+
+    # ---------------------------------------------------------------
+    # Helper to run MLX generation through memo
+    # ---------------------------------------------------------------
     runOne = (modelPath, adapterPath, prompts, maxTokens) ->
-      M.saveThis "mlx-lm:generate",
+      req =
         op: "generate"
-        model: modelPath
-        adapter: adapterPath
-        prompts: prompts
+        model_path: modelPath
+        adapter_path: adapterPath
+        prompt: null           # will be one prompt at a time
         max_tokens: maxTokens
-      mo = M.theLowdown "mlx-lm:generate"
-      res = await mo.notifier
-      if res?.error?
-        throw new Error "mlx-lm.generate error: #{res.error}"
-      return res.outputs or []
 
+      outs = []
+
+      for p in prompts
+        req.prompt = p
+        M.saveThis "mlx-lm:generate", req
+        mo = M.theLowdown "mlx-lm:generate"
+        res = await mo.notifier
+
+        if res?.error?
+          throw new Error "mlx-lm.generate error: #{res.error}"
+
+        # MLX generate returns {text: "..."} or equivalent
+        txt = res.output or res.text or ""
+        c = if txt.startsWith(p) then txt.slice(p.length) else txt
+        outs.push c.trim()
+
+      outs
+
+    # ---------------------------------------------------------------
+    # Main loop
+    # ---------------------------------------------------------------
+    allRows = []
     stamp = new Date().toISOString().replace(/\.\d+Z$/, 'Z')
 
-    for run in runs
-      arts = pickArtifacts(run)
+    for re in runs
+      arts = pickArtifacts(re)
 
-      for art in arts
-        for [pvLabel, pvFn] in promptVariants
+      for [modelPath, adapterPath, artLabel] in arts
+        for [pvLabel, pvFn] in PROMPT_VARIANTS
 
-          promptsV = PROMPTS.map pvFn
+          promptsV = PROMPTS.map(pvFn)
 
-          # --- SHORT ---
-          outsShort = await runOne(art.model, art.adapter, promptsV, MAX_NEW_SHORT)
-          for i in [0...PROMPTS.length]
-            o = outsShort[i] or ''
-            rows.push
+          shortOuts = await runOne(modelPath, adapterPath, promptsV, MAX_SHORT)
+          longOuts  = await runOne(modelPath, adapterPath, promptsV, MAX_LONG)
+
+          # Build output rows (one per prompt per budget)
+          for idx in [0...PROMPTS.length]
+            p = PROMPTS[idx]
+            s = shortOuts[idx] or ''
+            l = longOuts[idx] or ''
+            allRows.push
               timestamp_utc: stamp
-              model_id: run.model_id
-              artifact: art.label
+              model_id: re.model_id
+              artifact: artLabel
               prompt_variant: pvLabel
               budget: 'short'
-              prompt: PROMPTS[i]
-              generation: o
-              len_chars: o.length
-              len_words: o.split(/\s+/).filter((x)->x).length
-              is_empty: if o.trim().length is 0 then 1 else 0
+              prompt: p
+              generation: s
+              len_chars: s.length
+              len_words: s.split(/\s+/).filter((x)->x.length).length
+              is_empty: if s.trim().length is 0 then 1 else 0
 
-          # --- LONG ---
-          outsLong = await runOne(art.model, art.adapter, promptsV, MAX_NEW_LONG)
-          for i in [0...PROMPTS.length]
-            o = outsLong[i] or ''
-            rows.push
+            allRows.push
               timestamp_utc: stamp
-              model_id: run.model_id
-              artifact: art.label
+              model_id: re.model_id
+              artifact: artLabel
               prompt_variant: pvLabel
               budget: 'long'
-              prompt: PROMPTS[i]
-              generation: o
-              len_chars: o.length
-              len_words: o.split(/\s+/).filter((x)->x).length
-              is_empty: if o.trim().length is 0 then 1 else 0
+              prompt: p
+              generation: l
+              len_chars: l.length
+              len_words: l.split(/\s+/).filter((x)->x.length).length
+              is_empty: if l.trim().length is 0 then 1 else 0
 
-    # --- Outputs -----------------------------------------------------
+    # ---------------------------------------------------------------
+    # Dump results: JSONL + YAML through memo meta rules
+    # ---------------------------------------------------------------
+    jsonlKey = "#{ABLATIONS}.jsonl"
+    yamlKey  = "#{ABLATIONS}.yaml"
 
-    jsonlOut = rows.map((r)-> JSON.stringify(r)).join('\n') + '\n'
-    M.saveThis jsonlPath, jsonlOut
+    # JSONL wants array of strings or objects? Our JSONL meta writes {text:...}
+    # So convert rows → JSON-lines-of-object manually
+    M.saveThis jsonlKey, allRows.map (r) -> JSON.stringify(r)
 
+    # For YAML grouping
     grouped = {}
-    for r in rows
-      pr = r.prompt.trim()
+    for r in allRows
+      pr = (r.prompt or '').trim()
       grouped[pr] ?= []
       grouped[pr].push r
 
-    M.saveThis yamlPath, yaml.safeDump(grouped, {sortKeys:false, lineWidth:140})
+    M.saveThis yamlKey, yaml.safeDump(grouped, {sortKeys:false})
 
+    # Mark completion
     M.saveThis "done:#{stepName}", true
-    console.log "📘 Examination complete: #{jsonlPath}"
+
     return

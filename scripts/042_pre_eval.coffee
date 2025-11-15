@@ -1,101 +1,72 @@
 #!/usr/bin/env coffee
-###
-042_pre_eval.coffee — strict memo-aware version (2025)
--------------------------------------------------------
-STEP — Pre-Evaluation Sanity Checker
-Reads eval_out/generations.jsonl
-Computes summary stats (empties, avg length, prompt coverage)
-Emits:
-  pre_eval:summary
-  pre_eval_summary.json
-  pre_eval_summary.csv
-###
+
+# -------------------------------------------------------------------
+# 044_pre_eval.coffee — prepare data for evaluator
+# -------------------------------------------------------------------
 
 fs   = require 'fs'
 path = require 'path'
+yaml = require 'js-yaml'
 
-# --- Helpers ---------------------------------------------------------------
-readJSONLines = (p) ->
-  return [] unless fs.existsSync(p)
-  lines = fs.readFileSync(p, 'utf8').split(/\r?\n/)
-  out = []
-  for l in lines when l.trim().length
-    try out.push JSON.parse(l)
-    catch err
-      console.warn "⚠️ bad JSON line:", err.message
-  out
-
-mean = (xs) ->
-  return 0 unless xs?.length
-  s = 0
-  for x in xs when typeof x is 'number'
-    s += x
-  s / xs.length
-
-timestampUTC = ->
-  new Date().toISOString().replace(/\.\d+Z$/,'Z')
-
-# ---------------------------------------------------------------------------
-# Step definition
-# ---------------------------------------------------------------------------
 @step =
-  desc: "Pre-evaluation sanity check for generations.jsonl"
+  desc: "Prepare evaluation input from snapshot generations"
 
   action: (M, stepName) ->
-    throw new Error "Missing stepName argument" unless stepName?
 
-    cfg = M.theLowdown("experiment.yaml")?.value or M.theLowdown("evaluation.yaml")?.value
-    unless cfg?
-      throw new Error "No config found in memo (experiment.yaml or evaluation.yaml)"
+    cfg = M.theLowdown('experiment.yaml')?.value
+    throw new Error "Missing experiment.yaml" unless cfg?
 
     stepCfg = cfg[stepName]
-    throw new Error "Missing config for '#{stepName}' in yaml" unless stepCfg?
-    params = stepCfg.params or {}
-    for key in ['input_dir', 'output_dir']
-      unless params[key]? and params[key].length
-        throw new Error "Missing required param '#{key}' for step '#{stepName}'"
+    runCfg  = cfg['run']
+    throw new Error "Missing pre_eval config" unless stepCfg?
+    throw new Error "Missing run config" unless runCfg?
 
-    inputDir  = params.input_dir
-    outputDir = params.output_dir
-    fs.mkdirSync(outputDir, {recursive:true})
+    SNAP_NAME = stepCfg.snapshots
+    JSONL_KEY = "#{SNAP_NAME}.jsonl"
 
-    GEN_PATH = path.join(inputDir, 'generations.jsonl')
-    unless fs.existsSync(GEN_PATH)
-      throw new Error "❌ Missing #{GEN_PATH} — snapshot step must run first."
+    # --------------------------------------------------------------
+    # Load snapshot lines from memo (wait if needed)
+    # --------------------------------------------------------------
+    entry = M.theLowdown(JSONL_KEY)
+    lines = entry.value
 
-    console.log "=== Pre-Eval starting ==="
-    console.log "Input:", GEN_PATH
-    console.log "Output:", outputDir
+    if not lines?
+      await entry.notifier
+      lines = M.theLowdown(JSONL_KEY).value
 
-    rows = readJSONLines(GEN_PATH)
-    total = rows.length
-    throw new Error "❌ No rows found; aborting pre-eval." if total is 0
+    unless Array.isArray(lines)
+      throw new Error "Snapshot JSONL missing in memo"
 
-    empty = 0; tooShort = 0; words = []; prompts = new Set()
+    # Rehydrate objects
+    rows = []
+    for line in lines
+      try
+        rows.push JSON.parse(line)
+      catch e
+        console.warn "Bad generation row:", line, e.message
+
+    # --------------------------------------------------------------
+    # Pre-eval format (simple pairings)
+    # --------------------------------------------------------------
+    evalRecords = []
     for r in rows
-      g = (r.generation or r.output_text or '').trim()
-      w = g.split(/\s+/).filter((x)->x.length).length
-      prompts.add(r.prompt or '')
-      if g.length is 0 then empty++
-      else if w < 5 then tooShort++
-      else words.push(w)
+      evalRecords.push
+        prompt: r.prompt
+        generation: r.generation
+        len_chars: r.len_chars
+        len_words: r.len_words
+        is_empty: r.is_empty
+        model_id: r.model_id
+        artifact: r.artifact
 
-    summary =
-      timestamp_utc: timestampUTC()
-      total_rows: total
-      empty_count: empty
-      too_short: tooShort
-      avg_words: Number(mean(words).toFixed(2))
-      unique_prompts: prompts.size
-      empty_pct: Number((100 * empty / total).toFixed(1))
-      short_pct: Number((100 * tooShort / total).toFixed(1))
+    # --------------------------------------------------------------
+    # Save as JSONL + YAML (memo handles filesystem)
+    # --------------------------------------------------------------
+    outJsonl = "pre_eval.jsonl"
+    outYaml  = "pre_eval.yaml"
 
-    console.log "Summary:", summary
+    M.saveThis outJsonl, evalRecords.map((r)->JSON.stringify(r))
+    M.saveThis outYaml, yaml.safeDump(evalRecords)
 
-    M.saveThis "pre_eval:summary", summary
-    M.saveThis "pre_eval_summary.json", summary
-    M.saveThis "pre_eval_summary.csv", [summary]
     M.saveThis "done:#{stepName}", true
-
-    console.log "=== Pre-evaluation complete ==="
-    return summary
+    return

@@ -1,0 +1,45 @@
+# --------------------------------------------------------------------
+# KAG FULL PIPELINE
+# Training using user-authored story segments + KAG emotion metadata
+# --------------------------------------------------------------------
+
+manifest:
+  desc: "Top-level system boot: loads experiment.yaml into memo"
+  depends_on: []
+
+kag_merge:
+  depends_on: [ manifest ]
+
+prepare_experiments:
+  desc: "Compute experiments.csv from story+KAG dataset"
+  run: scripts/prepare_experiments.coffee
+  depends_on: [kag_merge]
+
+register:
+  desc: "Create artifacts.json and run_manifest"
+  run: scripts/register.coffee
+  depends_on: [prepare_experiments]
+
+train:
+  desc: "Run MLX LoRA training"
+  run: scripts/train.coffee
+  depends_on: [register]
+
+fuse:
+  desc: "Fuse and quantize trained model"
+  run: scripts/fuse.coffee
+  depends_on: [train]
+
+snapshot:
+  desc: "Generate generations.jsonl for sanity"
+  run: scripts/snapshot.coffee
+  depends_on: [fuse]
+
+examination:
+  desc: "Run KAG-focused generation ablations"
+  run: scripts/examination.coffee
+  depends_on: [snapshot]
+
+# Optional: the ‘never’ disabled entries for expansion
+extract_md_for_voice:
+  depends_on: [never]

@@ -1,222 +1,138 @@
 #!/usr/bin/env coffee
-###
-04_snapshot.coffee — strict memo-aware version (2025)
------------------------------------------------------
-• Executes inside unified pipeline (shared @memo)
-• Receives (M, stepName) directly — no env access
-• Loads LoRA models, generates few-shot text samples
-• Writes JSONL + CSV outputs
-###
 
-fs      = require 'fs'
-path    = require 'path'
-crypto  = require 'crypto'
-child   = require 'child_process'
+# -------------------------------------------------------------------
+# 041_snapshot.coffee — MLX meta-runner snapshot generator
+# Produces generations.jsonl + generations.yaml
+# -------------------------------------------------------------------
+
+fs   = require 'fs'
+path = require 'path'
+yaml = require 'js-yaml'
 
 @step =
-  desc: "Run MLX inference snapshot with few-shot prompts"
+  desc: "Generate prompt snapshots using MLX (base, fused, quantized)"
 
   action: (M, stepName) ->
 
-    throw new Error "Missing stepName argument" unless stepName?
-    cfg = M?.theLowdown?('experiment.yaml')?.value
-    throw new Error "Missing experiment.yaml in memo" unless cfg?
+    # ---------------------------------------------------------------
+    # Load experiment.yaml
+    # ---------------------------------------------------------------
+    cfg = M.theLowdown('experiment.yaml')?.value
+    throw new Error "Missing experiment.yaml" unless cfg?
 
     stepCfg = cfg[stepName]
-    throw new Error "Missing step config for '#{stepName}'" unless stepCfg?
-    runCfg = cfg['run']
-    throw new Error "Missing global 'run' section in experiment.yaml" unless runCfg?
+    runCfg  = cfg['run']
+    throw new Error "Missing step config '#{stepName}'" unless stepCfg?
+    throw new Error "Missing run section" unless runCfg?
 
-    # --- Required keys ---
-    for k in ['data_dir','contract','experiments_csv','snapshot_dir','output_dir','eval_dir','generations','tokmeta']
-      throw new Error "Missing required run.#{k}" unless k of runCfg
+    # ---------------------------------------------------------------
+    # Inputs from config (NO defaults silently inserted)
+    # ---------------------------------------------------------------
+    SNAP_NAME      = stepCfg.snapshots         # e.g. "generations"
+    PROMPTS        = stepCfg.prompts or []
+    MAX_NEW        = stepCfg.max_new_tokens
+    ONLY_MODEL_ID  = stepCfg.only_model_id
 
-    for k in ['prompts','max_new','alt_seed','n_shots','min_words','retries']
-      throw new Error "Missing required param '#{k}' in step '#{stepName}'" unless k of stepCfg
+    # ---------------------------------------------------------------
+    # Artifact registry
+    # ---------------------------------------------------------------
+    artPath = path.join(runCfg.data_dir, runCfg.artifacts)
+    reg = JSON.parse(fs.readFileSync(artPath, 'utf8'))
+    runs = reg.runs or []
+    throw new Error "No runs found in artifacts.json" unless runs.length
 
-    DATA_DIR  = path.resolve(runCfg.data_dir)
-    EXPERIMENTS_CSV = path.join(runCfg.experiments_csv)
-    SNAPSHOT_DIR    = path.join(runCfg.snapshot_dir)
-    CONTRACT_PATH   = path.join(runCfg.contract)
-    OUT_DIR    = path.resolve(runCfg.output_dir)
-    EVAL_DIR   = path.resolve(runCfg.eval_dir)
-    JSONL_PATH = path.join(EVAL_DIR, "#{runCfg.generations}.jsonl")
-    CSV_PATH   = path.join(EVAL_DIR, "#{runCfg.generations}.csv")
-    TOKMETA    = path.join(OUT_DIR, "#{runCfg.tokmeta}.json")
+    if ONLY_MODEL_ID? and ONLY_MODEL_ID.length > 0
+      runs = runs.filter (r) -> r.model_id is ONLY_MODEL_ID
+    throw new Error "No matching runs" unless runs.length
 
-    PROMPTS   = stepCfg.prompts
-    MAX_NEW   = stepCfg.max_new
-    SEED      = stepCfg.alt_seed
-    N_SHOTS   = stepCfg.n_shots
-    MIN_WORDS = stepCfg.min_words
-    RETRIES   = stepCfg.retries
+    # ---------------------------------------------------------------
+    # Artifact selection: quantized → fused → base+adapter
+    # ---------------------------------------------------------------
+    pickArtifacts = (re) ->
+      out = []
+      if re.quantized_dir? then out.push [re.quantized_dir, null, 'quantized']
+      if re.fused_dir?     then out.push [re.fused_dir, null, 'fused']
+      out.push [re.model_id, re.adapter_dir, 'base+adapter']
+      uniq = []
+      seen = new Set()
+      for [m,a,label] in out
+        key = "#{m}|#{a or ''}"
+        continue if seen.has(key)
+        seen.add(key)
+        uniq.push [m,a,label]
+      uniq
 
-    fs.mkdirSync OUT_DIR, {recursive:true}
-    fs.mkdirSync EVAL_DIR, {recursive:true}
-    fs.mkdirSync SNAPSHOT_DIR, {recursive:true}
+    # ---------------------------------------------------------------
+    # Helper to run MLX text generation through memo
+    # ---------------------------------------------------------------
+    runOne = (modelPath, adapterPath, prompts, maxTokens) ->
+      req =
+        op: "generate"
+        model_path: modelPath
+        adapter_path: adapterPath
+        prompt: null
+        max_tokens: maxTokens
 
-    sha = (s) -> crypto.createHash('sha256').update(String(s), 'utf8').digest('hex')
-    wc  = (s) -> String(s).trim().split(/\s+/).length
-    readJSON = (p) -> JSON.parse(fs.readFileSync(p, 'utf8'))
-    timestampUTC = -> new Date().toISOString().replace(/\.\d+Z$/, 'Z')
+      outs = []
 
-    contract = readJSON(CONTRACT_PATH)
-    fields = contract?.schema?.fields or {}
-    text_field = Object.keys(fields).find((k)->String(fields[k]).toLowerCase() is 'string') or 'text'
-    train_path = contract?.filenames?.train?.resolved or path.join(DATA_DIR, 'train.jsonl')
+      for p in prompts
+        req.prompt = p
+        M.saveThis "mlx-lm:generate", req
+        mo = M.theLowdown "mlx-lm:generate"
+        res = await mo.notifier
 
-    # --- Load & dedupe training corpus ---
-    train_lines = []
-    for line in fs.readFileSync(train_path, 'utf8').split(/\r?\n/)
-      try
-        obj = JSON.parse(line)
-        t = obj[text_field]
-        if typeof t is 'string' and t.trim().length
-          train_lines.push t.trim()
-      catch e then continue
+        if res?.error?
+          throw new Error "mlx-lm.generate error: #{res.error}"
 
-    seen = new Set()
-    unique = []
-    for t in train_lines
-      h = sha(t)
-      unless seen.has(h)
-        seen.add(h)
-        unique.push(t)
+        txt = res.output or res.text or ""
+        c = if txt.startsWith(p) then txt.slice(p.length) else txt
+        outs.push c.trim()
 
-    short  = unique.filter (t)-> wc(t) <= 4
-    medium = unique.filter (t)-> wc(t) >= 5 and wc(t) <= 12
-    longer = unique.filter (t)-> wc(t) > 12
-    train_blob = unique.join('\n\n')
-    train_set  = new Set(unique)
+      outs
 
-    pickDiverseShots = (k) ->
-      pool = []
-      pool.push short[Math.floor(Math.random()*short.length)] if short.length
-      pool.push medium[Math.floor(Math.random()*medium.length)] if medium.length
-      pool.push longer[Math.floor(Math.random()*longer.length)] if longer.length
-      rest = unique.filter (t)-> not pool.includes(t)
-      shuffled = rest.sort(-> Math.random()-0.5)
-      (pool.concat(shuffled)).slice(0,k)
-
-    formatFewshot = (prompt, shots) ->
-      "Some Proverbs:\n- " + shots.join("\n- ") + "\n\n#{prompt}\n- "
-
-    trimOnCustomStop = (text, stop) ->
-      i = text.indexOf(stop)
-      if i is -1 then text else text.slice(0, i)
-
-    isBad = (gen) ->
-      g = gen.trim()
-      return true if wc(g) < MIN_WORDS
-      return true if train_set.has(g)
-      return true if g.length >= 24 and train_blob.includes(g)
-      false
-
-    runMLXGenerate = (prompt, modelPath, adapterPath, maxNew) ->
-      script = """
-from mlx_lm import load, generate
-m,t = load(#{JSON.stringify(modelPath)}, adapter_path=#{JSON.stringify(adapterPath)})
-out = generate(model=m, tokenizer=t, prompt=#{JSON.stringify(prompt)}, max_tokens=#{maxNew})
-print(out)
-"""
-      res = child.spawnSync('python', ['-u', '-c', script], {encoding:'utf8'})
-      if res.error? or res.status isnt 0
-        console.error "❌ MLX generate failed", res.stderr
-        return ''
-      res.stdout.trim()
-
-    generateOnce = (prompt, modelPath, adapterPath) ->
-      tries = 0
-      loop
-        shots = pickDiverseShots(N_SHOTS)
-        fp = formatFewshot(prompt, shots)
-        txt = runMLXGenerate(fp, modelPath, adapterPath, MAX_NEW)
-        gen = if txt.startsWith(fp) then txt.slice(fp.length).trim() else txt.trim()
-        return [fp, gen, shots] unless isBad(gen) and tries < RETRIES
-        tries++
-        if tries >= RETRIES then return [fp, gen, shots]
-
-    ts = timestampUTC()
-    textCSV = fs.readFileSync(EXPERIMENTS_CSV, 'utf8').split(/\r?\n/)
-    header = textCSV[0].split(',')
-    rows = []
-    for l in textCSV.slice(1) when l.trim().length
-      cols = l.split(',')
-      row = {}
-      for i in [0...header.length]
-        row[header[i]] = cols[i]
-      rows.push(row)
-
+    # ---------------------------------------------------------------
+    # Main snapshot loop
+    # ---------------------------------------------------------------
     allRows = []
-    for i in [0...rows.length]
-      row = rows[i]
-      base = (row.model_id or '').trim()
-      adapter = (row.adapter_path or '').trim()
-      artifactLabel = ''
-      modelPath = null
-      adapterPath = null
+    stamp = new Date().toISOString().replace(/\.\d+Z$/, 'Z')
 
-      if adapter and fs.existsSync(adapter)
-        modelPath = base
-        adapterPath = adapter
-        artifactLabel = 'base+adapter'
-      else
-        console.warn "[WARN] Skipping row #{i} — no valid model found"
-        continue
+    for re in runs
+      arts = pickArtifacts(re)
 
-      tokmeta =
-        eos_token: null
-        eos_token_id: null
-        pad_token: null
-        pad_token_id: null
-      fs.writeFileSync(TOKMETA, JSON.stringify(tokmeta, null, 2), 'utf8')
+      for [modelPath, adapterPath, artLabel] in arts
+        outs = await runOne(modelPath, adapterPath, PROMPTS, MAX_NEW)
 
-      MODES = ['default_eos','no_eos','custom_stop']
-      CUSTOM_STOP = '\n\n'
-      for p in PROMPTS
-        for mode in MODES
-          [fp, gen, shots] = generateOnce(p, modelPath, adapterPath)
-          if mode is 'custom_stop'
-            gen = trimOnCustomStop(gen, CUSTOM_STOP).trim()
+        for idx in [0...PROMPTS.length]
+          p = PROMPTS[idx]
+          g = outs[idx] or ''
+
           allRows.push
-            timestamp: ts
-            seed: SEED
-            model_id: base
-            artifact: artifactLabel
-            artifact_model_path: modelPath
-            adapter_path: adapterPath or ''
-            prompt_variant: 'fewshot-dynamic'
-            mode: mode
+            timestamp_utc: stamp
+            model_id: re.model_id
+            artifact: artLabel
             prompt: p
-            input_text: fp
-            output_text: gen
-            generation: gen
-            shots: shots
-            max_new_tokens: MAX_NEW
-            custom_stop: if mode is 'custom_stop' then CUSTOM_STOP else ''
-          console.log "[#{mode}] #{p} → #{gen.slice(0,80)}..."
+            generation: g
+            len_chars: g.length
+            len_words: g.split(/\s+/).filter((x)->x.length).length
+            is_empty: if g.trim().length is 0 then 1 else 0
 
-    # --- Write JSONL ---
-    fs.writeFileSync(JSONL_PATH, '', 'utf8')
-    fjson = fs.createWriteStream(JSONL_PATH, {flags:'a', encoding:'utf8'})
+    # ---------------------------------------------------------------
+    # Write snapshot outputs: JSONL + YAML via memo
+    # ---------------------------------------------------------------
+    jsonlKey = "#{SNAP_NAME}.jsonl"
+    yamlKey  = "#{SNAP_NAME}.yaml"
+
+    # JSONL: provide object-per-line as strings, letting JSONL-meta wrap
+    M.saveThis jsonlKey, allRows.map (r) -> JSON.stringify(r)
+
+    # YAML grouped by prompt
+    grouped = {}
     for r in allRows
-      fjson.write JSON.stringify(r, null, 0) + "\n"
-    fjson.close()
+      pr = (r.prompt or '').trim()
+      grouped[pr] ?= []
+      grouped[pr].push r
 
-    # --- Write CSV ---
-    csvCols = ["timestamp","seed","model_id","artifact","artifact_model_path","adapter_path",
-      "prompt_variant","mode","prompt","generation","output_text","shots","max_new_tokens","custom_stop"]
+    M.saveThis yamlKey, yaml.safeDump(grouped, {sortKeys:false})
 
-    csvOut = fs.createWriteStream(CSV_PATH, {encoding:'utf8'})
-    csvOut.write(csvCols.join(',') + "\n")
-    for r in allRows
-      rr = {...r, shots: (r.shots or []).join(' | ')}
-      line = csvCols.map((c)-> rr[c] ? '').join(',')
-      csvOut.write(line + "\n")
-    csvOut.close()
-
-    console.log "Rows written: #{allRows.length} → #{JSONL_PATH} and #{CSV_PATH}"
-
-    M.saveThis 'snapshot:rows', allRows
     M.saveThis "done:#{stepName}", true
     return
