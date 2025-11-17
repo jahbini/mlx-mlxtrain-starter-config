@@ -12,22 +12,24 @@ kag_merge:
 
 prepare_experiments:
   desc: "Compute experiments.csv from story+KAG dataset"
-  run: scripts/prepare_experiments.coffee
   depends_on: [kag_merge]
+
+prepare_prompts:
+  desc: "Compute experiments.csv from story+KAG dataset"
+  depends_on: [prepare_experiments]
 
 register:
   desc: "Create artifacts.json and run_manifest"
   run: scripts/register.coffee
-  depends_on: [prepare_experiments]
+  depends_on: [never]
 
 train:
   desc: "Run MLX LoRA training"
-  run: scripts/train.coffee
-  depends_on: [register]
+  depends_on: [prepare_prompts]
 
 fuse:
   desc: "Fuse and quantize trained model"
-  run: scripts/fuse.coffee
+  run: kagnam/fuse.coffee
   depends_on: [train]
 
 snapshot:

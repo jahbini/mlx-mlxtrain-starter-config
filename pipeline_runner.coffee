@@ -240,7 +240,33 @@ class Memo
           args.push "--max-tokens",   String(v.max_tokens)
           args.push "--prompt",       String(v.prompt)
           args.push "--adapter-path", String(v.adapter_path)
-        # (Other MLX ops omitted here for brevity — plug your full builder in)
+
+        when "lora"
+          args.push "-m", "mlx_lm.lora"
+          args.push "--model",     String(v.model_id || v.model)
+          args.push "--data",         String(v.data)
+          args.push "--batch-size",   String(v.batch_size)
+          args.push "--iters",        String(v.iters)
+          args.push "--max-seq-length", String(v.max_seq_length)
+          #args.push "--grad-checkpoint",   String(v.grad_accum || v.grad_checkpoint)
+          args.push "--learning-rate",String(v.learning_rate)
+          args.push "--adapter-path", String(v.adapter_path)
+
+        when "fuse"
+          args.push "-m", "mlx_lm.fuse"
+          args.push "--model-id",   String(v.model_id)
+          args.push "--adapter-path", String(v.adapter_path)
+          args.push "--output",     String(v.output)
+
+        when "convert"
+          args.push "-m", "mlx_lm.convert"
+          args.push "--model-id", String(v.model_id)
+          args.push "--output",   String(v.output)
+
+        when "train"
+          args.push "-m", "mlx_lm.train"
+          # Add real train args here as needed
+
       args
 
     args = buildArgs(cmdType, payload)

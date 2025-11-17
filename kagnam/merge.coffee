@@ -6,6 +6,10 @@
 • Matches on (meta.doc_id, meta.paragraph_index)
 • Writes a new JSONL with structured "Instruction + Segment + Meta" text
 • Output is a standard {"text": "..."} per line, ready for LoRA
+
+{"meta":{"doc_id":"story-210","title":"leo-and-stations-healing.md","paragraph_index":"81"},"prompt":"Pathy look at it with disgust, &ldquo;Slugs, ugh, get rid of it.&rdquo; Leo shoots a glance to Station and flares his nostrils like Kirk Douglas in a '50s flick. Station shoots a look back like Victor Mature and becomes kittenish. &nbsp;They lock hands and walk up the path to their house: &quot;Thank you, Pathy: You have no idea the gift you have found.&quot;\n\n","completion":""}
+
+{"meta":{"doc_id":"story-285","title":"the-man-who-walked.md","paragraph_index":"131"},"model":"microsoft/Phi-3-mini-4k-instruct","emotions":[{"emotion":"anger","intensity":"moderate"},{"emotion":"fear","intensity":"mild"}]}
 ###
 
 fs   = require 'fs'
@@ -21,13 +25,13 @@ path = require 'path'
     cfg = M.theLowdown('experiment.yaml')?.value
     throw new Error "Missing experiment.yaml in memo" unless cfg?
 
-    stepCfg = cfg[stepName]
-    throw new Error "Missing step config for #{stepName}" unless stepCfg?
+    runCfg = cfg.run
+    throw new Error "Missing step config for #{stepName}" unless runCfg?
 
     # We deliberately do not pre-check keys; failures should happen at first use.
-    storiesPath  = path.resolve(stepCfg.stories_jsonl)
-    emotionsPath = path.resolve(stepCfg.emotions_jsonl)
-    outPath      = path.resolve(stepCfg.output_jsonl)
+    storiesPath  = path.resolve(runCfg.stories)
+    emotionsPath = path.resolve(runCfg.emotions)
+    outPath      = runCfg.mergedStories
 
     readLines = (p) ->
       fs.readFileSync(p, 'utf8').split(/\r?\n/).filter (l) -> l.trim().length
@@ -77,50 +81,22 @@ path = require 'path'
         missingEmo += 1
         continue
 
-      # Option B — token-friendly emotion spec: anger:moderate, fear:mild
-      specs = []
-      for e in emos
-        emo = String(e.emotion ? e.label ? '').trim()
-        inten = String(e.intensity ? '').trim()
-        continue unless emo.length
-        spec = if inten.length then "#{emo}:#{inten}" else emo
-        specs.push spec
-      continue unless specs.length
-
       matchedStories += 1
-      mixText = specs.join(", ")
-
-      # Segment text — prefer prompt, then text, then completion
-      seg =
-        if typeof row.prompt is 'string' and row.prompt.length then row.prompt
-        else if typeof row.text is 'string' and row.text.length then row.text
-        else if typeof row.completion is 'string' and row.completion.length then row.completion
-        else ''
-
-      seg = seg.trim()
-      continue unless seg.length
+      continue unless row.prompt?.length
 
       # Option C — structured schema, encoded into a single "text" field
-      parts = [
-        "Instruction:"
-        "Write or continue in a style that expresses the following emotional mix:"
-        "  #{mixText}"
-        ""
-        "Segment:"
-        seg
-        ""
-        "Meta:"
-        "  doc_id: #{meta.doc_id}"
-        "  paragraph_index: #{meta.paragraph_index}"
-        ""
-      ]
+      parts = 
+        Meta: 
+          doc_id: meta.doc_id
+          paragraph_index: meta.paragraph_index
+        Emotions: emos
+        prompt: row.prompt
 
-      text = parts.join("\n")
-      outLines.push JSON.stringify({text})  # single "text" field per row
+      text = JSON.stringify(parts)
+      outLines.push text  # single "text" field per row
 
     # 3) Write output JSONL
-    fs.mkdirSync(path.dirname(outPath), {recursive:true})
-    fs.writeFileSync(outPath, outLines.join("\n") + "\n", 'utf8')
+    M.saveThis outPath, outLines.join("\n") + "\n"
 
     console.log "[kag_merge] stories=#{totalStories} matched=#{matchedStories} missing_emotions=#{missingEmo}"
     console.log "[kag_merge] wrote #{outLines.length} KAG rows to #{outPath}"

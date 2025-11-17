@@ -10,6 +10,12 @@ run:
   output_dir: out
   data_dir: data
   eval_dir: eval_out
+  # These are file paths relative to CWD; we do not inject defaults.
+  stories: /Volumes/bigbig/theaiguy/daily/train_300/run/data/train.jsonl       # your story segments jsonl
+  emotions: /Volumes/bigbig/theaiguy/daily/train_300/run/data/kag_emotions.jsonl     # your emotions jsonl
+  mergedStories: data/merged_segments.jsonl         # KAG training jsonl (for LoRA)
+  mergedStories2: loraLand/valid.jsonl          # KAG training jsonl (for LoRA)
+  loraLand: loraLand
 
   # core dataset files
   story_segments: data/story_segments.jsonl
@@ -17,7 +23,9 @@ run:
 
   # merged + enriched training set
   merged_segments: data/merged_segments.jsonl
-  kag_examples: data/kag_examples.jsonl
+  kag_examples: loraLand
+  train_file: loraLand/train.jsonl
+  valid_file: loraLand/valid.jsonl
 
   # standard artifact definitions
   contract: data_contract.json
@@ -47,7 +55,7 @@ load_story_segments:
 
 load_kag_emotions:
   input: data/kag_emotions.jsonl
-  output: data/kag_emotions.jsonl
+  output: data/merged_segments.jsonl
 
 # ------------------------------------------------------------
 merge_segments_with_kag:
@@ -56,25 +64,10 @@ merge_segments_with_kag:
   output: data/merged_segments.jsonl
 
 kag_merge:
-    run: scripts/051_kag_merge.coffee
-    # These are file paths relative to CWD; we do not inject defaults.
-    stories_jsonl: /Volumes/bigbig/theaiguy/daily/train_300/run/data/train.jsonl       # your story segments jsonl
-    emotions_jsonl: /Volumes/bigbig/theaiguy/daily/train_300/run/data/kag_emotions.jsonl     # your emotions jsonl
-    output_jsonl: data/kag_train.jsonl          # KAG training jsonl (for LoRA)
-# ------------------------------------------------------------
-build_training_examples:
-  merged_key: data/merged_segments.jsonl
-  output: data/kag_examples.jsonl
-
-# ------------------------------------------------------------
-prepare_prompts:
-  template_name: kag_minimal
-  stop_strings: ["<|endoftext|>", "\n\n"]
-  use_eos_token: false
-  output: data/prompt_policy.json
-
+    run: kagnam/merge.coffee
 # ------------------------------------------------------------
 prepare_experiments:
+  run: kagnam/prepare_experiments.coffee
   epochs: 1
   batch_size: 1
   grad_accum: 8
@@ -83,6 +76,9 @@ prepare_experiments:
   bf16: true
   iters_override: 400        # short runs for iterative development
   output: experiments.csv
+
+prepare_prompts:
+  run: kagnam/prepare_prompts.coffee
 
 # ------------------------------------------------------------
 prepare_data:
@@ -97,6 +93,7 @@ register:
 
 # ------------------------------------------------------------
 train:
+  run: kagnam/train.coffee
   dry_run: false
   only_model_id: ""         # blank = use run.model
   only_row: "None"          # pipeline always has 1 row

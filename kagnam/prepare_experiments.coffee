@@ -18,26 +18,26 @@ path = require 'path'
     # --------------------------
     # Load config + step config
     # --------------------------
-    cfg = M.theLowdown('experiment.yaml')?.value
-    throw new Error "Missing experiment.yaml" unless cfg?
+    Cfg = M.theLowdown('experiment.yaml')?.value
+    throw new Error "Missing experiment.yaml" unless Cfg?
 
-    run = cfg.run
-    throw new Error "Missing run section" unless run?
+    runCfg = Cfg.run
+    throw new Error "Missing run section" unless runCfg?
 
-    stepCfg = cfg[stepName]
+    stepCfg = Cfg[stepName]
     throw new Error "Missing step config for #{stepName}" unless stepCfg?
 
     # --------------------------
     # Required run keys for KAG
     # --------------------------
     for k in ['model','train_file','valid_file','output_dir','experiments_csv']
-      throw new Error "Missing run.#{k}" unless run[k]?
+      throw new Error "Missing runCfg.#{k}" unless runCfg[k]?
 
-    MODEL_ID   = run.model
-    TRAIN_PATH = path.resolve(run.train_file)
-    VALID_PATH = path.resolve(run.valid_file)
-    OUT_DIR    = path.resolve(run.output_dir)
-    EXP_CSV    = path.resolve(run.experiments_csv)
+    MODEL_ID   = runCfg.model
+    TRAIN_PATH = path.resolve(runCfg.train_file)
+    VALID_PATH = path.resolve(runCfg.valid_file)
+    OUT_DIR    = path.resolve(runCfg.output_dir)
+    EXP_CSV    = path.resolve(runCfg.experiments_csv)
 
     # --------------------------
     # Count JSONL lines
@@ -50,6 +50,7 @@ path = require 'path'
     validCount = countLines(VALID_PATH)
 
     dataDir = path.dirname(TRAIN_PATH)
+    console.log "JIM",dataDir,TRAIN_PATH
 
     # --------------------------
     # Required step keys
@@ -115,7 +116,7 @@ path = require 'path'
     # ------------------------------------
     # Memo integrations for downstream use
     # ------------------------------------
-    M.saveThis run.experiments_csv, csv
+    M.saveThis runCfg.experiments_csv, csv
     M.saveThis "prepare_kagnam_experiments:last_row", row
     M.saveThis "done:#{stepName}", true
 
