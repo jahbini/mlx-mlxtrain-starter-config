@@ -5,14 +5,14 @@
 # All scripts expect these keys and only these keys.
 # ============================================================
 
-run:
+runu
   # Output structure (memo + regex will persist automatically)
   output_dir: out
   data_dir: data
   eval_dir: eval_out
   # These are file paths relative to CWD; we do not inject defaults.
-  stories: /Volumes/bigbig/theaiguy/daily/train_300/run/data/train.jsonl       # your story segments jsonl
-  emotions: /Volumes/bigbig/theaiguy/daily/train_300/run/data/kag_emotions.jsonl     # your emotions jsonl
+  stories: /Volumes/bigbig/theaiguy/testPipeline/data/kag_train.jsonl       # your story segments jsonl
+  emotions: /Volumes/bigbig/theaiguy/testPipeline/data/kag_examples.jsonl     # your emotions jsonl
   mergedStories: data/merged_segments.jsonl         # KAG training jsonl (for LoRA)
   mergedStories2: loraLand/valid.jsonl          # KAG training jsonl (for LoRA)
   loraLand: loraLand

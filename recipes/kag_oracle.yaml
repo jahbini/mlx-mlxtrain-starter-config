@@ -1,0 +1,33 @@
+###
+# kag_oracle.yaml — daily emotional-oracle cycle + LoRA update
+###
+
+md2segments:
+  desc: "Convert markdown corpus → clean jsonl segments"
+  run: kag_oracle/md2segments.coffee
+  depends_on: []
+
+oracle_ask:
+  desc: "Query MLX emotion oracle on N untagged segments"
+  run: kag_oracle/oracle_ask.coffee
+  depends_on: [md2segments]
+
+reply_merge:
+  desc: "Merge oracle replies with matching story segments"
+  run: kag_oracle/reply_merge.coffee
+  depends_on: [oracle_ask]
+
+rotate_merged:
+  desc: "Rotate: merged→train; old train→append→valid"
+  run: kag_oracle/rotate_merged.coffee
+  depends_on: [reply_merge]
+
+lora_train:
+  desc: "Run incremental LoRA on today’s 10 new examples"
+  run: kag_oracle/lora_train.coffee
+  depends_on: [rotate_merged]
+
+lora_fuse:
+  desc: "Fuse LoRA adapter into base model"
+  run: kag_oracle/lora_fuse.coffee
+  depends_on: [lora_train]

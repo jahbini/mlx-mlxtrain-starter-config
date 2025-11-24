@@ -61,8 +61,8 @@ class Memo
       entry.meta = @selectMetaHandler(key)
 
       # Fire meta handler FIRST (so it has the raw new value)
-      try entry.meta(key, value) catch e then console.error "Meta init error:", e.message
-
+      try v=entry.meta(key, value) catch e then console.error "Meta init error:", e.message
+      entry.value = v if v
       return entry
 
     # Existing entry, update value + notify previous resolver.
@@ -76,7 +76,7 @@ class Memo
     oldResolver value if oldResolver
 
     # Call meta handler for this key
-    try entry.meta(key, value) catch e then console.error "Meta update error:", e.message
+    try entry.meta(key, value) catch e then console.error "Meta update error:",key, e.message
 
     # After notifier resolves, update stored value
     maybe.then (newval) -> entry.value = newval
@@ -151,7 +151,7 @@ class Memo
       fs.mkdirSync(path.dirname(dest), {recursive:true})
       fs.writeFileSync dest, ''
       for t in arr
-        fs.appendFileSync dest, JSON.stringify({text:t}) + "\n"
+        fs.appendFileSync dest, JSON.stringify(t) + "\n"
       return
 
 
@@ -159,7 +159,7 @@ class Memo
     # 1) MLX rules (highest priority)
     # ------------------------------------------------------------
     this.addMetaRule "mlx-lm agent",
-      /^mlx-lm:(train|generate|fuse|convert|lora)$/
+      /^donkeyButt mlx-lm:(train|generate|fuse|convert|lora)$/
       (key, payload) =>
         return unless payload?
         cmdType = key.split(":")[1]
@@ -223,79 +223,98 @@ class Memo
       /.^/,
       (k,v)-> return
 
+  demand: (key) ->
+    # 1. Already in memo?
+    if @MM[key]?
+      return @MM[key]
 
+    # 2. Try filesystem load
+    fs   = require 'fs'
+    path = require 'path'
+    abs  = path.join(process.cwd(), key)
+
+    unless fs.existsSync(abs)
+      return undefined
+
+    raw = null
+    try
+      raw = fs.readFileSync(abs, 'utf8')
+    catch e
+      return undefined   # silently fail per requirements
+
+    # 3. Decode JSONL vs raw
+    value = null
+    if /\.jsonl$/i.test(key)
+      lines = raw.split(/\r?\n/).filter (l)-> l.trim().length
+      objs  = []
+      for l in lines
+        try
+          objs.push JSON.parse(l)
+        catch e
+          continue   # skip malformed lines quietly
+      value = objs
+    else
+      value = raw
+
+    # 4. Store into memo in canonical structure
+    entry =
+      value: value
+      notifier: null
+      resolver: null
+      meta: (-> return)   # no-op meta handler for loaded files
+
+    @MM[key] = entry
+
+    # 5. Return stored entry
+    entry
   # --------------------------------------------------------------
   # runMlxCommand: same as before, but simplified to work with meta
   # --------------------------------------------------------------
-  runMlxCommand: (key, cmdType, payload) ->
+  callMLX: ( cmdType, payload) ->
     child = require 'child_process'
 
+    shQuote = (s) -> "'" + s.replace(/'/g, "'\\''") + "'"
+
     # Marshal payload → python args (you already have this)
-    buildArgs = (cmdType, v) ->
+    buildArgs = (cmdType, params) ->
       args = []
-      switch cmdType
-        when "generate"
-          args.push "-m", "mlx_lm.generate"
-          args.push "--model",        String(v.model_path)
-          args.push "--max-tokens",   String(v.max_tokens)
-          args.push "--prompt",       String(v.prompt)
-          args.push "--adapter-path", String(v.adapter_path)
-
-        when "lora"
-          args.push "-m", "mlx_lm.lora"
-          args.push "--model",     String(v.model_id || v.model)
-          args.push "--data",         String(v.data)
-          args.push "--batch-size",   String(v.batch_size)
-          args.push "--iters",        String(v.iters)
-          args.push "--max-seq-length", String(v.max_seq_length)
-          #args.push "--grad-checkpoint",   String(v.grad_accum || v.grad_checkpoint)
-          args.push "--learning-rate",String(v.learning_rate)
-          args.push "--adapter-path", String(v.adapter_path)
-
-        when "fuse"
-          args.push "-m", "mlx_lm.fuse"
-          args.push "--model-id",   String(v.model_id)
-          args.push "--adapter-path", String(v.adapter_path)
-          args.push "--output",     String(v.output)
-
-        when "convert"
-          args.push "-m", "mlx_lm.convert"
-          args.push "--model-id", String(v.model_id)
-          args.push "--output",   String(v.output)
-
-        when "train"
-          args.push "-m", "mlx_lm.train"
-          # Add real train args here as needed
-
+      args.push "-m", "mlx_lm", cmdType
+      for k,v of params
+        args.push "--#{k}"
+        args.push v if v
       args
 
     args = buildArgs(cmdType, payload)
-    cmd = ["python"].concat(args).join(" ")
+    cmd = "python"
+    console.log "JIM in pipeline", args
 
+    extractJSON = (raw) ->
+      return null unless raw?
+    
+      # 1) Extract anything between a pair of curly braces, longest match first
+      m = raw.match(/\{[\s\S]*\}/)
+      return null unless m?
+    
+      block = m[0]
+    
     hdr =
       "=== MLX ERROR ===\n" +
-      "Key: #{key}\n" +
+      "Key: #{cmdType}\n" +
       "Payload:\n#{JSON.stringify(payload,null,2)}\n" +
       "Command:\n#{cmd}\n"
 
     try
-      proc = child.spawnSync(cmd, {shell:true, encoding:'utf8'})
+      proc = child.spawnSync(cmd, args, { encoding:'utf8'})
     catch e
       console.error hdr + "spawn failed:\n#{e.message}"
       throw e
 
     if proc.status isnt 0
       console.error hdr + "stderr:\n#{proc.stderr}"
-      throw new Error "MLX command failed for #{key}"
-
-    try
-      result = JSON.parse(proc.stdout)
-    catch e
-      console.error hdr + "Bad JSON output:\n#{proc.stdout}"
-      throw e
+      throw new Error "MLX command failed for #{cmdType}"
 
     # Overwrite the memo entry with the result (your rule)
-    @saveThis key, result
+    return  proc.stdout
 # -------------------------------------------------------------------
 # Utilities
 # -------------------------------------------------------------------
