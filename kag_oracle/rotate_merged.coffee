@@ -5,6 +5,30 @@
 
   action: (M, stepName) ->
 
+    # ----------------------------------------------------------
+    # Helper: build LoRA-style training prompt from one segment
+    # ----------------------------------------------------------
+    build_lora_prompt = (seg) ->
+      emos = []
+      for k,v of seg.emotions
+        emos.push(  k + ": " + v ) unless v == "none"
+      emosLine = if emos.length then emos.join(", ")  else "neutral"
+
+      ctx = seg.prompt ? seg.text ? ""
+      ctxStr = String(ctx).trim()
+
+      [
+        "Instruction:",
+        "Using the narrator voice and tone from my stories, write a short passage that naturally expresses: #{emosLine}",
+        "\n",
+        "Context:",
+        ctxStr,
+        "\n",
+        "Response:",
+        "\n"
+      ].join("\n")
+
+
     cfg = M.theLowdown("experiment.yaml")?.value
     throw new Error "Missing experiment.yaml" unless cfg?
 
@@ -18,24 +42,25 @@
     mergedKey = runCfg.merged_segments
     trainKey  = runCfg.train_file
     validKey  = runCfg.valid_file
+    testKey   = runCfg.test_file
 
     # ----------------------------------------------------------
     # Load memo data
     # ----------------------------------------------------------
 
-    mergedEntry = M.theLowdown(mergedKey)
+    mergedEntry = M.demand(mergedKey)
     mergedRows  = mergedEntry?.value ? []
     unless Array.isArray(mergedRows)
       throw new Error "Merged segments in #{mergedKey} must be array"
 
     # Old train
-    trainEntry = M.theLowdown(trainKey)
+    trainEntry = M.demand(trainKey)
     oldTrain   = trainEntry?.value ? []
     unless Array.isArray(oldTrain)
       oldTrain = []
 
     # Old valid
-    validEntry = M.theLowdown(validKey)
+    validEntry = M.demand(validKey)
     oldValid   = validEntry?.value ? []
     unless Array.isArray(oldValid)
       oldValid = []
@@ -46,7 +71,11 @@
     #   newValid = oldValid + oldTrain
     # ----------------------------------------------------------
 
-    newTrain = mergedRows.slice()     # replace entirely
+    newTrain = mergedRows.map (seg) ->
+      text = build_lora_prompt seg
+      { text }
+
+
     newValid = oldValid.concat(oldTrain)
 
     # ----------------------------------------------------------
@@ -55,6 +84,7 @@
 
     M.saveThis trainKey, newTrain
     M.saveThis validKey, newValid
+    M.saveThis testKey,  oldTrain
 
     # For debugging/transparency
     console.log "rotate_merge:"

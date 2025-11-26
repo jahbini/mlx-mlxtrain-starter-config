@@ -8,16 +8,13 @@
     • In-process execution for CoffeeScript steps defining @step = { action }
     • Centralized MLX runner via M.mlx_runner(params)
     • Declarative MLX steps supported via run_mlx: true + mlx: { ... }
-    • depends_on DAG, not nested pipeline.steps
+    • depends_on DAG
+    • Restart-resume via state/done-*.json
 
-  Compatible with pipeline_evaluator.coffee
-  -----------------------------------------
-  - Same Memo runtime, regex persistence, and @step execution model.
-  - CoffeeScript steps can access the shared memo via their @step.action(M).
-  - Outputs auto-saved if memo key contains "/" or file extension.
-
-  Schema precedence:
-    recipe < config/default.yaml < override.yaml
+  NEW:
+    • NO recipes directory
+    • Stage selection via config/<stage>.yaml only
+    • experiment.yaml = config < override
 ###
 
 fs        = require 'fs'
@@ -28,21 +25,18 @@ CoffeeScript = require 'coffeescript'
 CoffeeScript.register()
 
 EXEC = process.env.EXEC
-CWD =  process.cwd()
+CWD  = process.cwd()
 
-# ---------------------------------------------------------------
+# -------------------------------------------------------------------
 # Memo with Meta-Dispatcher
-# ---------------------------------------------------------------
+# -------------------------------------------------------------------
 class Memo
   constructor: ->
     @MM = {}
-    @metaRules = []     
+    @metaRules = []
     @currentStep = null
     @initializeMetaRules CWD
 
-  # --------------------------------------------------------------
-  # saveThis: meta-handled, notifiers preserved
-  # --------------------------------------------------------------
   saveThis: (key, value) ->
     entry = @MM[key]
 
@@ -58,22 +52,21 @@ class Memo
 
       entry.meta = @selectMetaHandler(key)
 
-      try v = entry.meta(key, value)
-      catch e then console.error "Meta init error:", e.message
+      try v = entry.meta(key, value) catch e then console.error "Meta init error:", e.message
       entry.value = v if v
       return entry
 
     oldResolver = entry.resolver ? null
     breaker = null
     maybe = new Promise (resolve) -> breaker = resolve
+
     entry.resolver = breaker
     entry.notifier = maybe
     entry.value = value
 
     oldResolver value if oldResolver
 
-    try entry.meta(key, value)
-    catch e then console.error "Meta update error:", key, e.message
+    try entry.meta(key, value) catch e then console.error "Meta update error:", key, e.message
 
     maybe.then (newval) -> entry.value = newval
     entry
@@ -90,28 +83,21 @@ class Memo
       unsatisfied.push entry.notifier
 
     if unsatisfied.length is 0
-      try andDo()
-      catch e then console.error "waitFor immediate:", e.message
+      try andDo() catch e then console.error "waitFor immediate:", e.message
       return
 
     Promise.all(unsatisfied).then ->
-      try andDo()
-      catch e then console.error "waitFor deferred:", e.message
+      try andDo() catch e then console.error "waitFor deferred:", e.message
 
-  # --------------------------------------------------------------
-  # Meta rules
-  # --------------------------------------------------------------
   selectMetaHandler: (key) ->
     for rule in @metaRules
-      return rule.handler if rule.regex.test(key)
+      if rule.regex.test(key)
+        return rule.handler
     (k,v)-> return
 
   addMetaRule: (name, regex, handler) ->
     @metaRules.push {name, regex, handler}
 
-  # --------------------------------------------------------------
-  # Meta Rules Initialization
-  # --------------------------------------------------------------
   initializeMetaRules: (baseDir) ->
     fs = require 'fs'
     path = require 'path'
@@ -124,10 +110,8 @@ class Memo
       fs.mkdirSync(path.dirname(dest), {recursive:true})
       if typeof rows is 'string'
         fs.writeFileSync(dest, rows, 'utf8'); return
-
       unless Array.isArray(rows)
         throw new Error "CSV expects array or string"
-
       return unless rows.length and typeof rows[0] is 'object'
       keys = Object.keys(rows[0])
       buf = [keys.join(',')]
@@ -141,17 +125,17 @@ class Memo
       fs.writeFileSync dest, ''
       for t in arr
         fs.appendFileSync dest, JSON.stringify(t) + "\n"
-      return
 
-    # MLX-meta
-    this.addMetaRule "mlx-lm agent",
+    # 1) MLX dispatcher
+    @addMetaRule "mlx-lm agent",
       /^donkeyButt mlx-lm:(train|generate|fuse|convert|lora)$/
       (key, payload) =>
         return unless payload?
         cmdType = key.split(":")[1]
-        @runMlxCommand(key, cmdType, payload)
+        @runMlxCommand key, cmdType, payload
 
-    this.addMetaRule "jsonl-writer",
+    # 2) JSONL
+    @addMetaRule "jsonl-writer",
       /\.jsonl$/i,
       (key, value) ->
         return unless value?
@@ -159,7 +143,8 @@ class Memo
         writeJSONL(dest, value)
         console.log "💾 JSONL:", dest
 
-    this.addMetaRule "json-writer",
+    # 3) JSON
+    @addMetaRule "json-writer",
       /\.json$/i,
       (key, value) ->
         return unless value?
@@ -167,7 +152,8 @@ class Memo
         writeJSON(dest, value)
         console.log "💾 JSON:", dest
 
-    this.addMetaRule "csv-writer",
+    # 4) CSV
+    @addMetaRule "csv-writer",
       /\.csv$/i,
       (key, value) ->
         return unless value?
@@ -175,7 +161,8 @@ class Memo
         writeCSV(dest, value)
         console.log "💾 CSV:", dest
 
-    this.addMetaRule "slash-path-writer",
+    # 5) Slash paths
+    @addMetaRule "slash-path-writer",
       /^(?=.*\/)(?!.*\.[A-Za-z0-9]{1,8}$).+$/,
       (key, value) ->
         return unless value?
@@ -185,17 +172,12 @@ class Memo
         fs.writeFileSync(dest, data, 'utf8')
         console.log "💾 FILE:", dest
 
-    this.addMetaRule "noop",
+    @addMetaRule "noop",
       /.^/,
       (k,v)-> return
 
-  # --------------------------------------------------------------
-  # JAH UPDATED — demand = synchronous FS loader
-  # --------------------------------------------------------------
   demand: (key) ->
-    # Already have it?
-    if @MM[key]?
-      return @MM[key]
+    return @MM[key] if @MM[key]?
 
     fs   = require 'fs'
     path = require 'path'
@@ -205,46 +187,32 @@ class Memo
       return undefined
 
     raw = null
-    try
-      raw = fs.readFileSync(abs, 'utf8')
-    catch e
-      console.error "demand read failed for #{key}:", e.message
-      return undefined
+    try raw = fs.readFileSync(abs, 'utf8')
+    catch e then return undefined
 
     value = null
-    try
-      if /\.jsonl$/i.test(key)
-        lines = raw.split(/\r?\n/).filter (l)-> l.trim().length
-        objs  = []
-        for l in lines
-          try objs.push JSON.parse(l)
-          catch e then continue
-        value = objs
-
-      else if /\.json$/i.test(key)
-        value = JSON.parse raw
-
-      else
-        value = raw
-    catch e
-      console.error "demand decode failed for #{key}:", e.message
-      return undefined
+    if /\.jsonl$/i.test(key)
+      lines = raw.split(/\r?\n/).filter (l)-> l.trim().length
+      objs = []
+      for l in lines
+        try objs.push JSON.parse(l)
+        catch e then continue
+      value = objs
+    else
+      value = raw
 
     entry =
       value: value
       notifier: null
       resolver: null
       meta: (-> return)
-      loaded_from_fs: true
 
     @MM[key] = entry
     entry
 
-  # --------------------------------------------------------------
-  # MLX raw command
-  # --------------------------------------------------------------
-  callMLX: ( cmdType, payload) ->
+  callMLX: (cmdType, payload) ->
     child = require 'child_process'
+
     buildArgs = (cmdType, params) ->
       args = []
       args.push "-m", "mlx_lm", cmdType
@@ -256,16 +224,22 @@ class Memo
     args = buildArgs(cmdType, payload)
     cmd = "python"
 
-    proc = child.spawnSync(cmd, args, {encoding:'utf8'})
+    try
+      proc = child.spawnSync(cmd, args, {encoding:'utf8'})
+    catch e
+      console.error "MLX spawn failed:", e.message
+      throw e
+
     if proc.status isnt 0
-      console.error proc.stderr
-      throw new Error "MLX command failed for #{cmdType}"
+      console.error "MLX stderr:\n", proc.stderr
+      throw new Error "MLX command failed"
 
     proc.stdout
 
 # -------------------------------------------------------------------
 # Utilities
 # -------------------------------------------------------------------
+
 banner = (msg) -> console.log "\n=== #{msg} ==="
 prefixLines = (pfx, s) -> (s ? '').split(/\r?\n/).map((l)-> pfx + l).join("\n")
 isPlainObject = (o) -> Object.prototype.toString.call(o) is '[object Object]'
@@ -274,7 +248,8 @@ deepMerge = (target, source) ->
   return target unless source?
   for own k, v of source
     if v is null
-      delete target[k]; continue
+      delete target[k]
+      continue
     if isPlainObject(v) and isPlainObject(target[k])
       deepMerge target[k], v
     else
@@ -285,31 +260,25 @@ loadYamlSafe = (p) ->
   return {} unless p? and fs.existsSync(p)
   yaml.load fs.readFileSync(p, 'utf8') or {}
 
-expandIncludes = (spec, baseDir) ->
-  incs = spec.include
-  return spec unless incs? and Array.isArray(incs) and incs.length > 0
-  merged = JSON.parse(JSON.stringify(spec))
-  for inc in incs
-    incPath = path.isAbsolute(inc) and inc or path.join(baseDir, inc)
-    sub = loadYamlSafe(incPath)
-    merged = deepMerge merged, sub
-  merged
-
-### JAH ADD — restart helpers ###
-bootstrapDoneFlags = (M, steps) ->
+# -------------------------------------------------------------------
+# Restart helpers
+# -------------------------------------------------------------------
+bootstrapDoneFlags = (M, spec) ->
   stateDir = path.join(process.cwd(), 'state')
   return unless fs.existsSync(stateDir)
 
-  for own name, _ of steps
-    fp = path.join(stateDir, "done-#{name}.json")
-    continue unless fs.existsSync(fp)
-    try
-      st = JSON.parse fs.readFileSync(fp, 'utf8')
-      if st?.done is true
-        console.log "↺ restoring done:#{name} from state/"
-        M.saveThis "done:#{name}", true
-    catch e
-      console.error "state restore failed for #{name}:", e.message
+  for own name, val of spec
+    continue unless isPlainObject(val)
+    if val.run? or val.run_mlx is true
+      fp = path.join(stateDir, "done-#{name}.json")
+      continue unless fs.existsSync(fp)
+      try
+        st = JSON.parse fs.readFileSync(fp, 'utf8')
+        if st?.done is true
+          console.log "↺ restoring done:#{name} from state/"
+          M.saveThis "done:#{name}", true
+      catch e
+        console.error "state restore failed for #{name}:", e.message
 
 persistDone = (stepName) ->
   try
@@ -320,26 +289,19 @@ persistDone = (stepName) ->
       done: true
       finished_at: new Date().toISOString()
     fs.writeFileSync fp, JSON.stringify(payload, null, 2), 'utf8'
-    console.log "💾 persisted done:", stepName
   catch e
-    console.error "persistDone failed for #{stepName}:", e.message
-### JAH END ###
+    console.error "persistDone failed:", e.message
 
 # -------------------------------------------------------------------
-# Build experiment.yaml
+# Create experiment.yaml (config < override)
 # -------------------------------------------------------------------
-createExperimentYaml = (basePath, defaultConfig, overridePath) ->
+createExperimentYaml = (configPath, overridePath) ->
   banner "🔧 Creating experiment.yaml"
-  baseAbs  = path.resolve(basePath)
-  baseDir  = path.dirname(baseAbs)
 
-  recipe   = loadYamlSafe(baseAbs)
-  recipe   = expandIncludes(recipe, baseDir)
-  defaults = loadYamlSafe(defaultConfig)
+  config   = loadYamlSafe(configPath)
   override = loadYamlSafe(overridePath)
 
-  merged = deepMerge {}, defaults
-  merged = deepMerge merged, recipe
+  merged = deepMerge {}, config
   merged = deepMerge merged, override
 
   expPath = path.join(process.cwd(), 'experiment.yaml')
@@ -363,14 +325,14 @@ discoverSteps = (spec) ->
         else if typeof val.depends_on is 'string'
           deps = [val.depends_on]
         if deps.length is 1 and String(deps[0]).toLowerCase() is 'never'
-          console.log "⏭️  skipping step #{key} (depends_on: never)"
+          console.log "⏭️ skipping #{key}"
           continue
-        def = {}
-        for own k2, v2 of val then def[k2] = v2
-        def.depends_on = deps unless deps.length == 0
-        steps[key] = def
+      def = {}
+      for own k2,v2 of val then def[k2] = v2
+      def.depends_on = deps unless deps.length == 0
+      steps[key] = def
   if Object.keys(steps).length is 0
-    throw new Error "No steps discovered in experiment.yaml"
+    throw new Error "No steps found in experiment.yaml"
   steps
 
 # -------------------------------------------------------------------
@@ -378,60 +340,64 @@ discoverSteps = (spec) ->
 # -------------------------------------------------------------------
 toposort = (steps) ->
   indeg = {}; graph = {}
-  for own name, _ of steps
-    indeg[name] = 0
-    graph[name] = []
+  for own name, def of steps
+    indeg[name] = 0; graph[name] = []
   for own name, def of steps
     for dep in def.depends_on or []
       unless steps[dep]?
-        throw new Error "Undefined dependency '#{dep}' (by '#{name}')"
+        throw new Error "Undefined dependency '#{dep}'"
       indeg[name] += 1
       graph[dep].push name
-  q = (n for own n, d of indeg when d is 0)
+
+  q = (n for own n,d of indeg when d is 0)
   order = []
   while q.length
     n = q.shift()
     order.push n
     for m in graph[n]
       indeg[m] -= 1
-      q.push(m) if indeg[m] is 0
+      q.push m if indeg[m] is 0
+
+  if order.length isnt Object.keys(steps).length
+    missing = Object.keys(steps).filter (k)-> order.indexOf(k) is -1
+    console.error "⚠️ DAG anomaly missing:", missing.join(', ')
   order
 
 terminalSteps = (steps) ->
   dependents = new Set()
   for own name, def of steps
     for dep in def.depends_on or [] then dependents.add dep
-  (n for own n, _ of steps when not dependents.has(n))
+  (n for own n,_ of steps when not dependents.has(n))
 
 emitDot = (steps, outPath) ->
   try
     lines = ['digraph pipeline {','  rankdir=LR;']
-    for own n, _ of steps
+    for own n,_ of steps
       lines.push "  \"#{n}\" [shape=box];"
-    for own n, def of steps
-      for dep in def.depends_on or []
+    for own n, d of steps
+      for dep in d.depends_on or []
         lines.push "  \"#{dep}\" -> \"#{n}\";"
     lines.push '}'
     fs.writeFileSync outPath, lines.join("\n"), "utf8"
-    console.log "🖼  Wrote DOT graph:", outPath
+    console.log "🖼 DOT:", outPath
   catch e
     console.error "DOT write failed:", e.message
 
 # -------------------------------------------------------------------
-# Single-instance guard
+# Single instance guard
 # -------------------------------------------------------------------
 ensureSingleInstance = ->
   try
     scriptPath = path.resolve(__filename)
     out = execSync("ps -Ao pid,command | grep 'coffee' | grep '#{scriptPath}' | grep -v grep || true").toString()
     lines = out.trim().split("\n").filter (l)-> l.length>0
-    others = lines.filter (l)-> not l.startsWith(process.pid.toString())
-    if others.length>0 then process.exit(0)
+    others = lines.filter (l)-> not l.startsWith(String(process.pid))
+    process.exit(0) if others.length>0
   catch err
     console.error "Instance check error:", err.message
 
 # -------------------------------------------------------------------
-# MLX Runner wrapper
+# MLX Runner
 # -------------------------------------------------------------------
 runMLX = (stepName, params={}) ->
   new Promise (resolve, reject) ->
@@ -441,7 +407,7 @@ runMLX = (stepName, params={}) ->
     cmd   = 'python'
     argv  = ['-m', mod, entry].concat args
 
-    console.log "⚙️  #{stepName}: mlx #{argv.join(' ')}"
+    console.log "⚙️ #{stepName}: mlx #{argv.join(' ')}"
     proc = spawn cmd, argv,
       cwd: params.cwd ? process.cwd()
       env: Object.assign({}, process.env, params.env or {})
@@ -466,7 +432,7 @@ isNewStyleStep = (scriptPath) ->
 
 runStep = (stepName, def, expPath, M) ->
   new Promise (resolve, reject) ->
-    # Declarative MLX steps
+    # Declarative MLX
     if def.run_mlx is true
       params = def.mlx ? {}
       runMLX(stepName, params)
@@ -478,7 +444,7 @@ runStep = (stepName, def, expPath, M) ->
           persistDone stepName
           resolve true
         .catch (e) ->
-          console.error "! #{stepName} mlx failed:", e.message
+          console.error "! #{stepName} mlx:", e.message
           M.saveThis "done:#{stepName}", false
           reject e
       return
@@ -488,7 +454,7 @@ runStep = (stepName, def, expPath, M) ->
 
     scriptAbs = path.join(EXEC, def.run)
 
-    # Inline CoffeeScript @step
+    # Inline @step
     if /\.coffee$/i.test(scriptAbs) and isNewStyleStep(scriptAbs)
       console.log "⚙️ inline @step:", stepName
       stepModule = require scriptAbs
@@ -502,29 +468,29 @@ runStep = (stepName, def, expPath, M) ->
           persistDone stepName
           resolve true
         .catch (e) ->
-          console.error "! #{stepName} failed:", e.message
+          console.error "! #{stepName}:", e.message
           M.saveThis "done:#{stepName}", false
           reject e
       return
 
-    # External script (Python or Coffee)
+    # Spawn Python or Coffee
     interp = null; args = []
     if /\.py$/i.test(scriptAbs)
       interp = 'python'; args = ['-u', scriptAbs]
     else if /\.coffee$/i.test(scriptAbs)
       interp = 'coffee'; args = [scriptAbs]
     else
-      return reject new Error "Unknown script type for #{stepName}: #{scriptAbs}"
+      return reject new Error "Unknown script type: #{scriptAbs}"
 
-    console.log "▶️  #{stepName}: #{interp} #{args.join(' ')}"
-    proc = spawn(interp, args,
+    console.log "▶️ #{stepName}: #{interp} #{args.join(' ')}"
+    proc = spawn interp, args,
       stdio: ['ignore','pipe','pipe']
       env: Object.assign({}, process.env,
         CFG_OVERRIDE: expPath
         STEP_NAME: stepName
         STEP_PARAMS_JSON: JSON.stringify(def)
       )
-    )
+
     proc.stdout.on 'data', (buf) ->
       process.stdout.write prefixLines("┆ #{stepName} | ", buf.toString())
     proc.stderr.on 'data', (buf) ->
@@ -536,75 +502,71 @@ runStep = (stepName, def, expPath, M) ->
         persistDone stepName
         resolve true
       else
-        console.error "! #{stepName} exited:", code
+        console.error "! #{stepName} failed:", code
         M.saveThis "done:#{stepName}", false
         reject new Error "#{stepName} failed #{code}"
 
 # -------------------------------------------------------------------
-# Main
+# MAIN
 # -------------------------------------------------------------------
 main = ->
   ensureSingleInstance()
 
-  baseRecipe = process.argv[2] or 'full'
-  dotOut     = process.env.DOT_OUT or process.argv[3] or null
+  stage = process.argv[2] or 'daily'
+  dotOut = process.env.DOT_OUT or process.argv[3] or null
 
-  console.log "CWD:", process.cwd()
+  console.log "CWD:", CWD
   console.log "EXEC:", EXEC
-  banner "Recipe: #{baseRecipe}"
+  banner "Stage: #{stage}"
 
-  defaultConfig = path.join(EXEC, 'config', baseRecipe+'.yaml')
-  recipeInUse   = path.join(EXEC, 'recipes', baseRecipe+'.yaml')
-  overridePath  = path.join(process.cwd(), 'override.yaml')
+  configPath   = path.join(EXEC, 'config', stage+'.yaml')
+  overridePath = path.join(CWD, 'override.yaml')
 
-  expPath = createExperimentYaml(recipeInUse, defaultConfig, overridePath)
+  expPath = createExperimentYaml(configPath, overridePath)
   spec    = loadYamlSafe(expPath)
 
   M = new Memo()
   M.saveThis "experiment.yaml", spec
   M.mlx_runner = (params={}) -> runMLX("mlx", params)
 
-  ### JAH UPDATED — discover steps BEFORE bootstrap ###
+  bootstrapDoneFlags(M, spec)
+
   steps = discoverSteps(spec)
-
-  ### JAH UPDATED — now bootstrap with the real step list ###
-  bootstrapDoneFlags(M, steps)
-
   order = toposort(steps)
-  console.log "Discovered steps:", Object.keys(steps).join(', ')
-  console.log "Topo order:", order.join(' → ')
-  if dotOut? then emitDot steps, dotOut
 
-  # Persist per-step params
-  for own n, d of steps
+  console.log "Steps:", Object.keys(steps).join(', ')
+  console.log "Topo:", order.join(' → ')
+  emitDot steps, dotOut if dotOut?
+
+  for own n,d of steps
     M.saveThis "params/#{n}.json", d
 
-  # DAG execution
   for own name, def of steps
     do (name, def) ->
       deps = def.depends_on or []
       fire = ->
         runStep(name, def, expPath, M)
-          .catch (err) -> console.error "! Step #{name} error:", err.message
+          .catch (e) -> console.error "! #{name}:", e.message
           .then ->
-            console.log "JAH fini", name
+            console.log "✓ fini", name
             M.saveThis "done:#{name}", true
             persistDone name
 
       if deps.length is 0
-        console.log "▶️ starting root step #{name}"
+        console.log "▶️ starting #{name}"
         fire()
       else
-        console.log "⏳ waiting for deps of #{name}: #{deps.join(', ')}"
+        console.log "⏳ waiting for #{name}: #{deps.join(', ')}"
         M.waitFor (deps.map (d)-> "done:#{d}"), -> fire()
 
   finals = terminalSteps(steps)
-  Promise.all( finals.map((s)-> M.theLowdown("done:#{s}").notifier) ).then ->
-    banner "🌟 Pipeline finished (final: #{finals.join(', ')})"
-    process.exit(0)
-  .catch (e) ->
-    console.error "Pipeline failed:", e.message
-    process.exit(1)
+  Promise.all( finals.map((s)-> M.theLowdown("done:#{s}").notifier) )
+    .then ->
+      banner "🌟 Pipeline finished (#{finals.join(', ')})"
+      process.exit(0)
+    .catch (e) ->
+      console.error "Pipeline failed:", e.message
+      process.exit(1)
 
 process.on 'SIGINT', ->
   console.log "\n(CTRL+C) Exiting..."

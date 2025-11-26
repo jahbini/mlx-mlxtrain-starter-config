@@ -37,7 +37,6 @@ fs = require 'fs'   # kept only in case step module requires; unused
     emoEntry = M.demand(emoKey)
     emoRaw   = emoEntry.value ? []
     replies  = emoRaw
-    console.log "JIM emoEntry", emoEntry, emoKey
 
     # Build lookup table: { "doc|idx" → emotions }
     lookup = {}

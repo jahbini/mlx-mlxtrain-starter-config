@@ -13,6 +13,7 @@ run:
   merged_segments: data/merged_segments.jsonl # staging for rotation
   train_file: loraland/train.jsonl            # LoRA train input
   valid_file: loraland/valid.jsonl            # LoRA valid input
+  test_file:  loraland/test.jsonl            # LoRA valid input
   loraLand: loraland                           # directory containing train/valid
 
   contract: data_contract.json                 # standard
